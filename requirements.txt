@@ -1,0 +1,28 @@
+# Manipulação de dados
+pandas>=1.3.0
+numpy>=1.21.0
+
+# Leitura de arquivos Excel (OBRIGATÓRIO)
+openpyxl>=3.0.7
+
+# Visualização de dados
+matplotlib>=3.4.0
+seaborn>=0.11.0
+
+# Manipulação de datas e tempo
+python-dateutil>=2.8.0
+
+# Para notebooks Jupyter (opcional)
+jupyter>=1.0.0
+notebook>=6.4.0
+
+# Para testes (opcional)
+pytest>=6.2.0
+pytest-cov>=2.12.0
+
+# Utilitários adicionais
+tqdm>=4.61.0  # Para barras de progresso (opcional)
+
+# Para geração de PDFs (opcional)
+reportlab>=3.6.0  # Para PDFs avançados
+weasyprint>=54.0  # Para converter HTML para PDF

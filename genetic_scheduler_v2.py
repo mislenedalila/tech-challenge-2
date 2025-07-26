@@ -186,6 +186,7 @@ class ScheduleGA_V2:
     def criar_cromossomo(self) -> np.ndarray:
         """
         Cria um cromossomo (agenda completa) garantindo que todas as disciplinas sejam atendidas
+        EXATAMENTE com a carga horária especificada
         """
         agenda = self.criar_agenda_vazia()
         aulas_para_alocar = copy.deepcopy(self.aulas_obrigatorias)
@@ -193,13 +194,13 @@ class ScheduleGA_V2:
         # Embaralhar as aulas para aleatoriedade
         random.shuffle(aulas_para_alocar)
         
-        # Tentar alocar todas as aulas
+        # Criar lista de slots disponíveis
         slots_disponiveis = [(d, h) for d in range(self.num_dias) for h in range(self.num_horarios)]
         random.shuffle(slots_disponiveis)
         
-        aulas_alocadas = 0
+        # Alocar APENAS as aulas necessárias (sem extras)
         for aula in aulas_para_alocar:
-            if aulas_alocadas >= len(slots_disponiveis):
+            if not slots_disponiveis:  # Se não há mais slots, parar
                 break
                 
             # Tentar encontrar um slot válido para a aula
@@ -210,17 +211,15 @@ class ScheduleGA_V2:
                     if self._professor_disponivel(aula.professor, dia, horario):
                         agenda[dia, horario] = aula
                         slots_disponiveis.pop(i)
-                        aulas_alocadas += 1
                         slot_encontrado = True
                         break
             
-            # Se não encontrou slot com disponibilidade, forçar alocação
-            if not slot_encontrado:
+            # Se não encontrou slot com disponibilidade, forçar alocação em qualquer slot livre
+            if not slot_encontrado and slots_disponiveis:
                 for i, (dia, horario) in enumerate(slots_disponiveis):
                     if agenda[dia, horario] is None:
                         agenda[dia, horario] = aula
                         slots_disponiveis.pop(i)
-                        aulas_alocadas += 1
                         break
         
         return agenda
@@ -284,7 +283,7 @@ class ScheduleGA_V2:
         return pontuacao_total
     
     def _pontuar_disciplinas_atendidas(self, agenda: np.ndarray) -> float:
-        """Pontua disciplinas que tiveram todas as aulas alocadas"""
+        """Pontua disciplinas que tiveram EXATAMENTE a carga horária alocada"""
         pontos = 0
         
         # Contar aulas por disciplina na agenda
@@ -296,17 +295,25 @@ class ScheduleGA_V2:
                     disc = aula.disciplina
                     aulas_por_disciplina[disc] = aulas_por_disciplina.get(disc, 0) + 1
         
-        # Verificar se cada disciplina foi completamente atendida
+        # Verificar se cada disciplina foi atendida EXATAMENTE
         for disc_codigo, disciplina in self.disciplinas.items():
             aulas_alocadas = aulas_por_disciplina.get(disc_codigo, 0)
-            if aulas_alocadas >= disciplina.carga_horaria:
+            aulas_necessarias = disciplina.carga_horaria
+            
+            if aulas_alocadas == aulas_necessarias:
+                # Disciplina atendida EXATAMENTE - pontuação máxima
                 pontos += self.pesos['disciplina_atendida']
+            elif aulas_alocadas < aulas_necessarias:
+                # Disciplina incompleta - pontuação proporcional
+                proporcao = aulas_alocadas / aulas_necessarias
+                pontos += self.pesos['disciplina_atendida'] * proporcao * 0.7
             else:
-                # Pontuação proporcional
-                proporcao = aulas_alocadas / disciplina.carga_horaria
-                pontos += self.pesos['disciplina_atendida'] * proporcao * 0.5
+                # Disciplina com AULAS EXTRAS - penalizar
+                aulas_extras = aulas_alocadas - aulas_necessarias
+                penalidade = min(aulas_extras * 200, self.pesos['disciplina_atendida'] * 0.5)
+                pontos += self.pesos['disciplina_atendida'] * 0.8 - penalidade
         
-        return pontos
+        return max(0, pontos)  # Garantir que não seja negativo
     
     def _pontuar_disponibilidade(self, agenda: np.ndarray) -> float:
         """Pontua aulas em horários onde o professor está disponível"""
@@ -468,6 +475,7 @@ class ScheduleGA_V2:
     def _reparar_cromossomo(self, agenda: np.ndarray) -> np.ndarray:
         """
         Repara cromossomo para garantir que todas as disciplinas sejam atendidas
+        EXATAMENTE com a carga horária especificada (sem aulas extras)
         """
         # Contar aulas atuais por disciplina
         aulas_atuais = {}
@@ -478,9 +486,34 @@ class ScheduleGA_V2:
                     disc = aula.disciplina
                     aulas_atuais[disc] = aulas_atuais.get(disc, 0) + 1
         
-        # Verificar disciplinas faltantes
+        # Primeiro: remover aulas extras
         for disc_codigo, disciplina in self.disciplinas.items():
             aulas_presentes = aulas_atuais.get(disc_codigo, 0)
+            aulas_necessarias = disciplina.carga_horaria
+            
+            if aulas_presentes > aulas_necessarias:
+                # Remover aulas extras
+                aulas_extras = aulas_presentes - aulas_necessarias
+                aulas_removidas = 0
+                
+                for dia in range(self.num_dias):
+                    for horario in range(self.num_horarios):
+                        if aulas_removidas >= aulas_extras:
+                            break
+                        aula = agenda[dia, horario]
+                        if aula is not None and aula.disciplina == disc_codigo:
+                            agenda[dia, horario] = None
+                            aulas_removidas += 1
+                    if aulas_removidas >= aulas_extras:
+                        break
+        
+        # Segundo: adicionar aulas faltantes (se necessário)
+        for disc_codigo, disciplina in self.disciplinas.items():
+            # Recontar após remoção
+            aulas_presentes = sum(1 for dia in range(self.num_dias) 
+                                for horario in range(self.num_horarios)
+                                if agenda[dia, horario] is not None and 
+                                agenda[dia, horario].disciplina == disc_codigo)
             aulas_necessarias = disciplina.carga_horaria
             
             if aulas_presentes < aulas_necessarias:
@@ -499,14 +532,17 @@ class ScheduleGA_V2:
                                for h in range(self.num_horarios) 
                                if agenda[d, h] is None]
                 
-                for i in range(min(aulas_faltando, len(slots_vazios))):
-                    dia, horario = slots_vazios[i]
+                aulas_adicionadas = 0
+                for dia, horario in slots_vazios:
+                    if aulas_adicionadas >= aulas_faltando:
+                        break
                     nova_aula = Aula(
                         disciplina=disc_codigo,
                         professor=professor,
                         sala=list(self.salas.keys())[0]
                     )
                     agenda[dia, horario] = nova_aula
+                    aulas_adicionadas += 1
         
         return agenda
     
@@ -607,17 +643,19 @@ class ScheduleGA_V2:
         self._exibir_estatisticas(agenda)
     
     def _exibir_estatisticas(self, agenda: np.ndarray):
-        """Exibe estatísticas da agenda"""
+        """Exibe estatísticas da agenda com verificação de carga horária"""
         print("📊 ESTATÍSTICAS DA AGENDA")
         print("-" * 50)
         
         # Aulas por dia
         print("Distribuição por dia:")
+        total_aulas_agenda = 0
         for d, dia in enumerate(self.dias):
             aulas = sum(1 for h in range(self.num_horarios) if agenda[d, h] is not None)
+            total_aulas_agenda += aulas
             print(f"  {dia}: {aulas} aulas")
         
-        # Aulas por disciplina
+        # Aulas por disciplina com verificação
         print("\nAulas por disciplina:")
         aulas_por_disc = {}
         for d in range(self.num_dias):
@@ -627,21 +665,59 @@ class ScheduleGA_V2:
                     disc = aula.disciplina
                     aulas_por_disc[disc] = aulas_por_disc.get(disc, 0) + 1
         
+        total_aulas_necessarias = sum(disc.carga_horaria for disc in self.disciplinas.values())
+        
         for disc_codigo, count in aulas_por_disc.items():
             disciplina = self.disciplinas[disc_codigo]
-            status = "✅" if count >= disciplina.carga_horaria else "❌"
-            print(f"  {status} {disciplina.nome[:30]}: {count}/{disciplina.carga_horaria}")
+            necessarias = disciplina.carga_horaria
+            
+            if count == necessarias:
+                status = "✅"
+            elif count < necessarias:
+                status = "❌"
+            else:
+                status = "⚠️"  # Aulas extras
+                
+            print(f"  {status} {disciplina.nome[:30]}: {count}/{necessarias}h", end="")
+            if count > necessarias:
+                print(f" (⚠️ {count - necessarias} extra{'s' if count - necessarias > 1 else ''})")
+            else:
+                print()
+        
+        # Resumo de slots
+        slots_ocupados = total_aulas_agenda
+        slots_totais = self.num_dias * self.num_horarios
+        slots_necessarios = total_aulas_necessarias
+        
+        print(f"\nResumo de slots:")
+        print(f"  • Slots necessários: {slots_necessarios}")
+        print(f"  • Slots ocupados: {slots_ocupados}")
+        print(f"  • Slots disponíveis: {slots_totais}")
+        print(f"  • Slots livres: {slots_totais - slots_ocupados}")
+        
+        if slots_ocupados > slots_necessarios:
+            print(f"  ⚠️ Aulas extras detectadas: {slots_ocupados - slots_necessarios}")
         
         # Disponibilidade
-        total_aulas = sum(1 for d in range(self.num_dias) for h in range(self.num_horarios) 
-                         if agenda[d, h] is not None)
         aulas_disponiveis = sum(1 for d in range(self.num_dias) for h in range(self.num_horarios) 
                                if agenda[d, h] is not None and 
                                self._professor_disponivel(agenda[d, h].professor, d, h))
         
-        if total_aulas > 0:
-            perc_disponibilidade = (aulas_disponiveis / total_aulas) * 100
+        if total_aulas_agenda > 0:
+            perc_disponibilidade = (aulas_disponiveis / total_aulas_agenda) * 100
             print(f"\nDisponibilidade respeitada: {perc_disponibilidade:.1f}%")
+            
+        # Verificação de integridade
+        print(f"\n🔍 Verificação de integridade:")
+        disciplinas_corretas = sum(1 for disc_codigo, disciplina in self.disciplinas.items()
+                                 if aulas_por_disc.get(disc_codigo, 0) == disciplina.carga_horaria)
+        total_disciplinas = len(self.disciplinas)
+        print(f"  • Disciplinas com carga correta: {disciplinas_corretas}/{total_disciplinas}")
+        
+        if disciplinas_corretas == total_disciplinas:
+            print("  ✅ Todas as disciplinas têm carga horária correta!")
+        else:
+            print("  ⚠️ Algumas disciplinas têm carga horária incorreta!")
 
 # Exemplo de uso
 if __name__ == "__main__":

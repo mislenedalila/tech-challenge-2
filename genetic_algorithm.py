@@ -1,834 +1,925 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+🎓 FIAP Tech Challenge - Algoritmo Genético para Otimização de Horários
+📊 Versão FINAL OTIMIZADA para cenário específico
+🎯 Regras implementadas:
+   - Aulas começam SEMPRE às 18:50
+   - 2 aulas: seguidas no mesmo dia
+   - 3 aulas: dividir em 2 dias (2+1)
+   - 4 aulas: dividir em 2 dias (2+2)
+   - Evitar janelas de horário
+   - Sexta-feira mais leve
+
+Desenvolvido para: Tech Challenge FIAP - Fase 2
+"""
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
 import json
 import random
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 import os
 import warnings
 from collections import defaultdict
 warnings.filterwarnings('ignore')
 
-# 🎨 Configuração visual
+# Configuração visual
 plt.style.use('default')
 try:
-    sns.set_palette("husl")
+    import platform
+    system = platform.system().lower()
+    if system == 'windows':
+        plt.rcParams['font.family'] = ['Arial', 'DejaVu Sans', 'sans-serif']
+    elif system == 'darwin':
+        plt.rcParams['font.family'] = ['Helvetica', 'Arial', 'DejaVu Sans', 'sans-serif']
+    else:
+        plt.rcParams['font.family'] = ['DejaVu Sans', 'Liberation Sans', 'sans-serif']
 except:
-    pass
+    plt.rcParams['font.family'] = 'sans-serif'
 
-class CorretorDados:
-    """🔧 Classe para corrigir problemas nos dados"""
+class AlgoritmoGeneticoHorarios:
+    """🧬 Algoritmo Genético para Horários Acadêmicos"""
     
     def __init__(self):
-        self.mapeamento_turnos = {
-            'Noite': 'noturno',
-            'Tarde': 'vespertino', 
-            'Manhã': 'matutino'
-        }
-        
-        self.horarios_noturnos = ['18:50', '19:40', '20:30', '21:20']
-        
-    def converter_horario_decimal_para_string(self, horario_decimal):
-        """🕐 Converte horário decimal para string HH:MM"""
-        try:
-            # Converte decimal para horas e minutos
-            horas = int(horario_decimal * 24)
-            minutos = int((horario_decimal * 24 * 60) % 60)
-            
-            # Mapeia para horários noturnos específicos
-            if horas == 19 or (horas == 18 and minutos >= 50):
-                return "18:50"
-            elif horas == 20 or (horas == 19 and minutos >= 40):
-                return "19:40"
-            elif horas == 21 or (horas == 20 and minutos >= 30):
-                return "20:30"
-            elif horas == 22 or (horas == 21 and minutos >= 20):
-                return "21:20"
-            else:
-                # Se não mapeia, distribui nos horários disponíveis
-                return random.choice(self.horarios_noturnos)
-                
-        except:
-            return "18:50"  # Fallback
-    
-    def corrigir_disponibilidade(self, df_disponibilidade):
-        """🔧 Corrige dados de disponibilidade"""
-        df_corrigido = df_disponibilidade.copy()
-        
-        print("🔧 Corrigindo dados de disponibilidade...")
-        
-        # 1. Corrigir nomes dos turnos
-        df_corrigido['TURNO'] = df_corrigido['TURNO'].map(self.mapeamento_turnos)
-        
-        # 2. Corrigir horários decimais
-        if df_corrigido['HORARIO'].dtype != 'object':
-            df_corrigido['HORARIO'] = df_corrigido['HORARIO'].apply(
-                self.converter_horario_decimal_para_string
-            )
-        
-        # 3. Filtrar apenas registros noturnos
-        df_noturno = df_corrigido[df_corrigido['TURNO'] == 'noturno'].copy()
-        
-        print(f"✅ Dados corrigidos:")
-        print(f"   Registros originais: {len(df_disponibilidade)}")
-        print(f"   Registros noturnos corrigidos: {len(df_noturno)}")
-        
-        # 4. Se não há registros noturnos suficientes, criar artificialmente
-        if len(df_noturno) < 50:  # Número mínimo necessário
-            df_noturno = self.criar_disponibilidade_artificial(df_corrigido)
-        
-        return df_noturno
-    
-    def criar_disponibilidade_artificial(self, df_original):
-        """🤖 Cria disponibilidade artificial para todos os professores nos horários noturnos"""
-        print("🤖 Criando disponibilidade artificial para horários noturnos...")
-        
-        # Pegar todos os professores únicos
-        professores_unicos = df_original['CODPROF'].unique()
-        
-        disponibilidade_artificial = []
-        
-        for prof in professores_unicos:
-            for dia in ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta']:
-                for horario in self.horarios_noturnos:
-                    registro = {
-                        'CHAPA': f"ART{prof}",
-                        'CODPROF': prof,
-                        'TURNO': 'noturno',
-                        'DIADASEMANA': dia,
-                        'HORARIO': horario
-                    }
-                    disponibilidade_artificial.append(registro)
-        
-        df_artificial = pd.DataFrame(disponibilidade_artificial)
-        print(f"✅ Criados {len(df_artificial)} registros artificiais de disponibilidade")
-        
-        return df_artificial
-
-class GeneticScheduleOptimizer:
-    """
-    🧬 Algoritmo Genético CORRIGIDO para Horários Escolares
-    
-    Características principais:
-    - População mista com criação flexível
-    - Função fitness menos rigorosa
-    - Correção automática de dados
-    - Convergência melhorada
-    """
-    
-    def __init__(self):
-        """Inicializa o otimizador com parâmetros corrigidos"""
-        
-        # 🔧 Parâmetros do Algoritmo Genético CORRIGIDOS
-        self.tamanho_populacao = 60       # Reduzido para teste
-        self.taxa_mutacao = 0.25          # Aumentado para mais diversidade
+        # Parâmetros
+        self.tamanho_populacao = 40
+        self.taxa_mutacao = 0.2
         self.taxa_crossover = 0.8
-        self.taxa_elitismo = 0.1
-        self.max_geracoes = 200           # Reduzido para teste inicial
+        self.taxa_elitismo = 0.15
+        self.max_geracoes = 150
         
-        # 🕒 Especificações de Horário Noturno
-        self.horarios_noturnos = ['18:50', '19:40', '20:30', '21:20']
-        self.dias_semana = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta']
+        # Horários e dias
+        self.horarios = ['18:50', '19:40', '20:30', '21:20']
+        self.dias = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta']
         
-        # 📊 Dados carregados
+        # Dados
         self.disciplinas = None
         self.professores = None
         self.salas = None
         self.turmas = None
         self.disponibilidade = None
         
-        # 🎯 Controle de evolução
+        # Controle
         self.historico_fitness = []
         self.melhor_solucao = None
         self.melhor_fitness = float('inf')
-        self.geracoes_sem_melhoria = 0
-        self.max_geracoes_sem_melhoria = 30
         
-        # 🔧 Corretor de dados
-        self.corretor = CorretorDados()
-        
-        print("🚀 TECH CHALLENGE - ALGORITMO GENÉTICO CORRIGIDO")
-        print("📊 Versão corrigida para resolver FITNESS = 28800")
-        print("🎯 Restrições: Disciplinas 2+ aulas em dias diferentes")
-        print("⚡ Foco: Minimizar conflitos e maximizar ocupação")
+        print("🎓 ALGORITMO GENÉTICO OTIMIZADO - TECH CHALLENGE FIAP")
         print("=" * 60)
     
-    def carregar_e_processar_dados_corrigidos(self):
-        """📂 Versão corrigida do carregamento de dados"""
+    def converter_horario_decimal(self, horario_decimal):
+        """🕐 Converte horário decimal para string"""
+        try:
+            if isinstance(horario_decimal, str):
+                return horario_decimal
+            
+            horas = int(horario_decimal * 24)
+            minutos = int((horario_decimal * 24 * 60) % 60)
+            
+            if horas >= 21:
+                return "21:20"
+            elif horas >= 20:
+                return "20:30"
+            elif horas >= 19:
+                return "19:40"
+            else:
+                return "18:50"
+        except:
+            return "18:50"
+    
+    def carregar_dados(self):
+        """📂 Carrega dados"""
         try:
             print("📂 Carregando dados...")
             
-            # Verificar se pasta existe
             if not os.path.exists('dados'):
                 raise FileNotFoundError("Pasta 'dados' não encontrada!")
             
-            # Carregar dados normalmente
             self.disciplinas = pd.read_excel('dados/disciplinas.xlsx')
             self.professores = pd.read_excel('dados/professores.xlsx')
             self.salas = pd.read_excel('dados/salas.xlsx')
             self.turmas = pd.read_excel('dados/turmas.xlsx')
-            disponibilidade_raw = pd.read_excel('dados/disponibilidadeProfessor.xlsx')
             
-            # 🔧 CORREÇÃO: Usar corretor para dados de disponibilidade
-            self.disponibilidade = self.corretor.corrigir_disponibilidade(disponibilidade_raw)
+            # Carregar e processar disponibilidade
+            disp_raw = pd.read_excel('dados/disponibilidadeProfessor.xlsx')
+            disp_raw['HORARIO'] = disp_raw['HORARIO'].apply(self.converter_horario_decimal)
+            self.disponibilidade = disp_raw[disp_raw['TURNO'].str.lower().str.contains('notur', na=False)]
             
-            print("✅ Dados carregados e corrigidos!")
+            print("✅ Dados carregados!")
             print(f"   📚 {len(self.disciplinas)} disciplinas")
-            print(f"   👨‍🏫 {len(self.professores)} professores") 
+            print(f"   👨‍🏫 {len(self.professores)} professores")
             print(f"   🎓 {len(self.turmas)} turmas")
             print(f"   🏫 {len(self.salas)} salas")
-            print(f"   🕒 {len(self.disponibilidade)} registros disponibilidade corrigidos")
             
-            return self.processar_dados_corrigidos()
+            return self.processar_dados()
             
         except Exception as e:
             print(f"❌ Erro: {e}")
             return False
-
-    def processar_dados_corrigidos(self):
-        """🔧 Versão corrigida do processamento"""
+    
+    def processar_dados(self):
+        """🔧 Processa dados CORRIGIDO"""
         try:
-            # Processar habilitações dos professores
-            for idx, row in self.professores.iterrows():
-                if pd.notna(row['DISCIPLINASHABILITADAS']):
-                    # 🔧 CORREÇÃO: Dividir por ponto-e-vírgula ou vírgula
-                    habilitacoes = []
-                    if ';' in str(row['DISCIPLINASHABILITADAS']):
-                        habilitacoes = [h.strip() for h in str(row['DISCIPLINASHABILITADAS']).split(';')]
-                    elif ',' in str(row['DISCIPLINASHABILITADAS']):
-                        habilitacoes = [h.strip() for h in str(row['DISCIPLINASHABILITADAS']).split(',')]
-                    else:
-                        habilitacoes = [str(row['DISCIPLINASHABILITADAS']).strip()]
-                    
-                    self.professores.at[idx, 'habilitacoes_lista'] = habilitacoes
-                else:
-                    self.professores.at[idx, 'habilitacoes_lista'] = []
-            
-            # 🔧 CORREÇÃO: Calcular aulas baseado na carga horária
             self.total_aulas = 0
-            self.disciplinas_info = []
+            
+            # CORREÇÃO: Cada disciplina é cursada por apenas 1 turma (SIN-2A-N)
+            print(f"🔧 Processando dados para turma única...")
+            
+            turmas_unicas = self.turmas['CODTURMA'].unique()
+            print(f"   Turma encontrada: {turmas_unicas[0]}")
             
             for _, disciplina in self.disciplinas.iterrows():
-                # Assumir que cada aula tem 2h (padrão universitário)
-                aulas_por_semana = int(disciplina['CARGAHORARIA'] / 2)
-                if aulas_por_semana == 0:
-                    aulas_por_semana = 1  # Mínimo 1 aula
+                num_aulas = disciplina['CARGAHORARIA']
+                # CORREÇÃO: Cada disciplina tem apenas 1 turma cursando
+                self.total_aulas += num_aulas
                 
-                # Contar quantas turmas têm esta disciplina
-                turmas_disciplina = len(self.turmas[self.turmas['CODDISC'] == disciplina['CODDISC']])
-                
-                total_aulas_disciplina = aulas_por_semana * turmas_disciplina
-                self.total_aulas += total_aulas_disciplina
-                
-                # Armazenar informações processadas
-                self.disciplinas_info.append({
-                    'codigo': disciplina['CODDISC'],
-                    'nome': disciplina['NOME'],
-                    'aulas_por_semana': aulas_por_semana,
-                    'turmas': turmas_disciplina,
-                    'total_aulas': total_aulas_disciplina
-                })
+                regra = self.determinar_regra(num_aulas)
+                print(f"   {disciplina['NOME']}: {num_aulas} aulas - {regra}")
             
-            print(f"🔧 Processando dados...")
-            print(f"✅ Processamento corrigido: {self.total_aulas} aulas para alocar")
+            print(f"📊 Total aulas para a turma: {self.total_aulas}")
             
-            # Mostrar distribuição de aulas
-            print(f"📊 Distribuição de aulas:")
-            for info in self.disciplinas_info[:5]:  # Mostrar primeiras 5
-                print(f"   {info['nome']}: {info['aulas_por_semana']} aulas × {info['turmas']} turmas = {info['total_aulas']}")
+            # Verificar se cabe perfeitamente
+            slots_total = len(self.dias) * len(self.horarios)  # 5 dias × 4 horários = 20 slots
+            print(f"📊 Slots disponíveis: {slots_total}")
+            
+            if self.total_aulas <= slots_total:
+                print(f"✅ Perfeito! {self.total_aulas} aulas cabem em {slots_total} slots")
+            else:
+                print(f"⚠️ Problema: {self.total_aulas} aulas para {slots_total} slots")
             
             return True
             
         except Exception as e:
-            print(f"❌ Erro no processamento: {e}")
+            print(f"❌ Erro processamento: {e}")
             return False
+    
+    def determinar_regra(self, num_aulas):
+        """📋 Determina regra"""
+        if num_aulas == 2:
+            return "2 seguidas mesmo dia"
+        elif num_aulas == 3:
+            return "DIVIDIR 2+1"
+        elif num_aulas == 4:
+            return "DIVIDIR 2+2"
+        else:
+            return f"{num_aulas} aulas"
+    
+    def professor_esta_disponivel(self, codprof, dia, horario):
+        """
+        Verifica se o professor está disponível no dia e horário especificados.
+        """
+        if self.disponibilidade is None:
+            return True  # Assume disponível caso não tenha dados
 
-    def calcular_fitness_corrigido(self, individuo):
-        """📊 Função de fitness corrigida e menos rigorosa"""
-        if not individuo:
-            return 999999
+        try:
+            disponiveis = self.disponibilidade[
+                (self.disponibilidade["CODPROF"] == codprof) &
+                (self.disponibilidade["DIADASEMANA"].str.lower() == dia.lower()) &
+                (self.disponibilidade["HORARIO"].astype(str).str.startswith(horario))
+            ]
+            return not disponiveis.empty
+        except Exception as e:
+            print(f"[Erro na verificação de disponibilidade] {e}")
+            return False
+    
+    def criar_gene(self, codigo_disc, nome_disc, codigo_turma, professor_id, sala_id, dia, horario, aula_num):
+        """🧬 Cria gene"""
+        return {
+            'disciplina': codigo_disc,
+            'nome_disciplina': nome_disc,
+            'turma': codigo_turma,
+            'professor': professor_id,
+            'sala': sala_id,
+            'dia': dia,
+            'horario': horario,
+            'aula_numero': aula_num
+        }
+    
+    def encontrar_slot_seguido(self, ocupacao, quantidade):
+        """🕒 Encontra slot seguido"""
+        dias_priorizados = ['Segunda', 'Terça', 'Quarta', 'Quinta']
+        if quantidade == 1:
+            dias_priorizados.append('Sexta')
         
-        fitness = 0
-        
-        # Estruturas para detectar conflitos
-        ocupacao_professor = {}
-        ocupacao_sala = {}
-        ocupacao_turma = {}
-        disciplinas_por_turma_dia = {}
-        
-        for aula in individuo:
-            prof_id = aula.get('professor')
-            sala_id = aula.get('sala')
-            turma = aula.get('turma')
-            dia = aula.get('dia')
-            horario = aula.get('horario')
-            disciplina = aula.get('disciplina')
+        for dia in dias_priorizados:
+            horarios_ocupados = ocupacao.get(dia, [])
+            horarios_necessarios = []
             
-            if not all([prof_id, sala_id, turma, dia, horario, disciplina]):
-                continue
+            for i in range(quantidade):
+                if i < len(self.horarios):
+                    horario = self.horarios[i]
+                    if horario not in horarios_ocupados:
+                        horarios_necessarios.append(horario)
+                    else:
+                        break
             
-            # Chaves únicas para detectar conflitos
-            chave_prof = (prof_id, dia, horario)
-            chave_sala = (sala_id, dia, horario)
-            chave_turma = (turma, dia, horario)
-            chave_disc_turma_dia = (turma, disciplina, dia)
-            
-            # Contar ocupações
-            ocupacao_professor[chave_prof] = ocupacao_professor.get(chave_prof, 0) + 1
-            ocupacao_sala[chave_sala] = ocupacao_sala.get(chave_sala, 0) + 1
-            ocupacao_turma[chave_turma] = ocupacao_turma.get(chave_turma, 0) + 1
-            disciplinas_por_turma_dia[chave_disc_turma_dia] = disciplinas_por_turma_dia.get(chave_disc_turma_dia, 0) + 1
+            if len(horarios_necessarios) == quantidade:
+                return dia, horarios_necessarios
         
-        # 🔧 CORREÇÃO: Penalizações mais brandas
-        # Conflitos de professor (peso reduzido)
-        conflitos_prof = sum(max(0, ocupacao - 1) for ocupacao in ocupacao_professor.values())
-        fitness += conflitos_prof * 300  # Era 1000
+        return None, None
+    
+    def alocar_dividido(self, codigo_disc, nome_disc, codigo_turma, professor_id, sala_id, divisoes, ocupacao):
+        """📅 Aloca dividido"""
+        aulas = []
+        aula_num = 1
         
-        # Conflitos de sala (peso reduzido)  
-        conflitos_sala = sum(max(0, ocupacao - 1) for ocupacao in ocupacao_sala.values())
-        fitness += conflitos_sala * 200  # Era 800
-            
-        # Conflitos de turma (peso mantido, é crítico)
-        conflitos_turma = sum(max(0, ocupacao - 1) for ocupacao in ocupacao_turma.values())
-        fitness += conflitos_turma * 500  # Era 900
+        for quantidade in divisoes:
+            dia, horarios = self.encontrar_slot_seguido(ocupacao, quantidade)
+            if dia and horarios:
+                for horario in horarios:
+                    aulas.append(self.criar_gene(codigo_disc, nome_disc, codigo_turma,
+                                               professor_id, sala_id, dia, horario, aula_num))
+                    if dia not in ocupacao:
+                        ocupacao[dia] = []
+                    ocupacao[dia].append(horario)
+                    aula_num += 1
         
-        # 🔧 CORREÇÃO: Penalização menor para disciplinas no mesmo dia
-        conflitos_mesmo_dia = sum(max(0, ocupacao - 1) for ocupacao in disciplinas_por_turma_dia.values())
-        fitness += conflitos_mesmo_dia * 100  # Era 500
+        return aulas
+    
+    def alocar_aulas_por_regra(self, codigo_disc, nome_disc, num_aulas, codigo_turma, ocupacao):
+        """🎯 Aloca por regra"""
+        aulas = []
         
-        # Bônus por aulas alocadas (incentiva soluções com mais aulas)
-        bonus_aulas = len(individuo) * 5
-        fitness -= bonus_aulas
+        # Professor
+        professor_info = self.professores[self.professores['CODDISC'] == codigo_disc]
+        if professor_info.empty:
+            professor_id = self.professores.iloc[0]['CODPROF']
+        else:
+            professor_id = professor_info.iloc[0]['CODPROF']
         
-        return max(0, fitness)  # Fitness não pode ser negativo
+        # Sala
+        sala_id = self.salas.iloc[0]['CODSALA']
+        
+        if num_aulas == 2:
+            # 2 seguidas
+            dia, horarios = self.encontrar_slot_seguido(ocupacao, 2)
+            if dia and horarios:
+                for i, horario in enumerate(horarios):
+                    aulas.append(self.criar_gene(codigo_disc, nome_disc, codigo_turma, 
+                                               professor_id, sala_id, dia, horario, i+1))
+                    if dia not in ocupacao:
+                        ocupacao[dia] = []
+                    ocupacao[dia].append(horario)
+        
+        elif num_aulas == 3:
+            # 3 = 2+1
+            aulas.extend(self.alocar_dividido(codigo_disc, nome_disc, codigo_turma,
+                                            professor_id, sala_id, [2, 1], ocupacao))
+        
+        elif num_aulas == 4:
+            # 4 = 2+2
+            aulas.extend(self.alocar_dividido(codigo_disc, nome_disc, codigo_turma,
+                                            professor_id, sala_id, [2, 2], ocupacao))
+        else:
+            # 1 aula
+            dia, horarios = self.encontrar_slot_seguido(ocupacao, 1)
+            if dia and horarios:
+                aulas.append(self.criar_gene(codigo_disc, nome_disc, codigo_turma,
+                                           professor_id, sala_id, dia, horarios[0], 1))
+                if dia not in ocupacao:
+                    ocupacao[dia] = []
+                ocupacao[dia].append(horarios[0])
+        
+        return aulas
+    
+    def gerar_populacao_inicial(self):
+        """
+        Gera a população inicial respeitando carga horária por disciplina,
+        criando alocações distribuídas e completas.
+        """
+        populacao = []
 
-    def escolher_professor_habilitado_flexivel(self, nome_disciplina):
-        """👨‍🏫 Escolha flexível de professor"""
-        
-        # Buscar por código da disciplina nas habilitações
-        disciplina_info = self.disciplinas[self.disciplinas['NOME'] == nome_disciplina]
-        if disciplina_info.empty:
-            return self.professores.iloc[0]['CODPROF']  # Fallback
-        
-        codigo_disciplina = disciplina_info.iloc[0]['CODDISC']
-        
-        # Procurar professor habilitado
-        for _, professor in self.professores.iterrows():
-            habilitacoes = professor.get('habilitacoes_lista', [])
-            if codigo_disciplina in habilitacoes:
-                return professor['CODPROF']
-        
-        # Se não encontrar, usar primeiro professor
-        return self.professores.iloc[0]['CODPROF']
+        for _ in range(self.tamanho_populacao):
+            individuo = []
 
-    def escolher_dia_horario_flexivel(self, ocupacao_turma, disciplina_multiplas_aulas):
-        """🗓️ Escolha flexível de dia e horário"""
-        
-        dias_disponiveis = self.dias_semana.copy()
-        
-        # Se disciplina tem múltiplas aulas, preferir dias diferentes
-        if disciplina_multiplas_aulas:
-            dias_ocupados = [dia for dia, horarios in ocupacao_turma.items() if len(horarios) > 0]
-            dias_livres = [dia for dia in self.dias_semana if dia not in dias_ocupados]
-            if dias_livres:
-                dias_disponiveis = dias_livres
-        
-        # Escolher primeiro dia e horário disponíveis
-        for dia in dias_disponiveis:
-            for horario in self.horarios_noturnos:
-                if horario not in ocupacao_turma.get(dia, []):
-                    return dia, horario
-        
-        # Fallback: usar primeiro dia e horário
-        return self.dias_semana[0], self.horarios_noturnos[0]
+            for _, row in self.disciplinas.iterrows():
+                cod_disciplina = row["CODDISC"]
+                nome_disciplina = row["NOME"]
+                cod_turma = row["CODTURMA"]
+                carga = row["CARGAHORARIA"]
 
-    def criar_individuo_mais_flexivel(self):
-        """🧬 Criação de indivíduo mais flexível"""
+                # Encontrar professor da disciplina
+                prof_row = self.professores[self.professores["CODDISC"] == cod_disciplina]
+                if prof_row.empty:
+                    continue
+                professor = prof_row.iloc[0]["CODPROF"]
+
+                # Definir padrão de distribuição da carga horária
+                if carga == 2:
+                    dias_para_usar = random.sample(self.dias, 1)
+                    horarios_para_usar = self.horarios[:2]
+                    distribuicao = [(dias_para_usar[0], h) for h in horarios_para_usar]
+                elif carga == 3:
+                    dias_para_usar = random.sample(self.dias, 2)
+                    distribuicao = [(dias_para_usar[0], self.horarios[0]), 
+                                    (dias_para_usar[0], self.horarios[1]),
+                                    (dias_para_usar[1], self.horarios[0])]
+                elif carga == 4:
+                    dias_para_usar = random.sample(self.dias, 2)
+                    distribuicao = [(dias_para_usar[0], self.horarios[0]),
+                                    (dias_para_usar[0], self.horarios[1]),
+                                    (dias_para_usar[1], self.horarios[0]),
+                                    (dias_para_usar[1], self.horarios[1])]
+                else:
+                    dias_para_usar = random.sample(self.dias, carga)
+                    distribuicao = [(dias_para_usar[i], self.horarios[i % len(self.horarios)]) for i in range(carga)]
+
+                # Criar as aulas
+                for dia, horario in distribuicao:
+                    sala = self.salas.sample(1).iloc[0]["CODSALA"]
+
+                    aula = {
+                        "disciplina": cod_disciplina,
+                        "turma": cod_turma,
+                        "professor": professor,
+                        "dia": dia,
+                        "horario": horario,
+                        "sala": sala
+                    }
+                    individuo.append(aula)
+
+            populacao.append(individuo)
+
+        return populacao
+    
+    def criar_individuo_otimizado(self):
+        """🧬 Cria indivíduo CORRIGIDO com debug completo"""
         individuo = []
+        ocupacao = {}
         
-        # Estruturas de controle básicas
-        ocupacao_turma = {}
+        # CORREÇÃO: Processar apenas a turma SIN-2A-N
+        codigo_turma = 'SIN-2A-N'  # Turma única
         
-        # Processar cada disciplina
+        print(f"\n🧬 CRIANDO HORÁRIO PARA TURMA: {codigo_turma}")
+        print("=" * 50)
+        
+        total_aulas_esperadas = sum(disc['CARGAHORARIA'] for _, disc in self.disciplinas.iterrows())
+        print(f"📊 Total de aulas esperadas: {total_aulas_esperadas}")
+        
         for _, disciplina in self.disciplinas.iterrows():
             codigo_disc = disciplina['CODDISC']
             nome_disc = disciplina['NOME']
-            carga_horaria = disciplina['CARGAHORARIA']
+            num_aulas = disciplina['CARGAHORARIA']
             
-            # Calcular número de aulas por semana
-            aulas_por_semana = int(carga_horaria / 2)
-            if aulas_por_semana == 0:
-                aulas_por_semana = 1  # Mínimo 1 aula
+            print(f"\n📚 PROCESSANDO: {nome_disc}")
+            print(f"   Aulas necessárias: {num_aulas}")
             
-            # Buscar turmas que cursam esta disciplina
-            turmas_disciplina = self.turmas[self.turmas['CODDISC'] == codigo_disc]
+            aulas_antes = len(individuo)
             
-            for _, turma in turmas_disciplina.iterrows():
-                codigo_turma = turma['CODTURMA']
-                
-                # Inicializar controle da turma
-                if codigo_turma not in ocupacao_turma:
-                    ocupacao_turma[codigo_turma] = {dia: [] for dia in self.dias_semana}
-                
-                for aula_num in range(aulas_por_semana):
-                    # 🔧 CORREÇÃO: Escolha mais flexível de recursos
-                    
-                    # Escolher professor (primeiro habilitado encontrado)
-                    professor_id = self.escolher_professor_habilitado_flexivel(nome_disc)
-                    
-                    # Escolher sala (rotacionar entre salas disponíveis)
-                    sala_idx = (len(individuo)) % len(self.salas)
-                    sala_id = self.salas.iloc[sala_idx]['CODSALA']
-                    
-                    # Escolher dia e horário (evitando conflitos básicos de turma)
-                    dia, horario = self.escolher_dia_horario_flexivel(
-                        ocupacao_turma[codigo_turma], 
-                        aulas_por_semana > 1
-                    )
-                    
-                    if dia and horario and professor_id:
-                        gene = {
-                            'disciplina': codigo_disc,
-                            'nome_disciplina': nome_disc,
-                            'turma': codigo_turma,
-                            'professor': professor_id,
-                            'sala': sala_id,
-                            'dia': dia,
-                            'horario': horario,
-                            'aula_numero': aula_num + 1
-                        }
-                        
-                        individuo.append(gene)
-                        ocupacao_turma[codigo_turma][dia].append(horario)
+            aulas_criadas = self.alocar_aulas_por_regra(
+                codigo_disc, nome_disc, num_aulas, codigo_turma, ocupacao
+            )
+            
+            individuo.extend(aulas_criadas)
+            aulas_depois = len(individuo)
+            aulas_adicionadas = aulas_depois - aulas_antes
+            
+            print(f"   ✅ Resultado: {aulas_adicionadas} aulas alocadas")
+            if aulas_adicionadas != num_aulas:
+                print(f"   ⚠️ PROBLEMA: Esperado {num_aulas}, obtido {aulas_adicionadas}")
+        
+        print(f"\n📊 RESUMO FINAL:")
+        print(f"   Total esperado: {total_aulas_esperadas}")
+        print(f"   Total obtido: {len(individuo)}")
+        print(f"   Diferença: {total_aulas_esperadas - len(individuo)}")
+        
+        if len(individuo) == total_aulas_esperadas:
+            print(f"   🎉 PERFEITO! Todas as aulas foram alocadas!")
+        else:
+            print(f"   ❌ PROBLEMA! {total_aulas_esperadas - len(individuo)} aulas perdidas")
+        
+        # Mostrar ocupação final
+        print(f"\n📅 OCUPAÇÃO FINAL:")
+        for dia in self.dias:
+            aulas_dia = ocupacao.get(dia, [])
+            print(f"   {dia}: {len(aulas_dia)} aulas - {sorted(aulas_dia)}")
         
         return individuo
+    
+    def fitness(self, individuo):
+        """
+        Avalia a qualidade de um indivíduo priorizando:
+        1. Cobertura total das aulas por disciplina-turma
+        2. Depois, conflitos (sala, professor, turma)
+        """
+        penalidade = 0
+        horarios_ocupados = {}
+        professor_ocupado = {}
+        turma_ocupada = {}
+        aulas_alocadas = {}
 
+        for aula in individuo:
+            turma = aula["turma"]
+            professor = aula["professor"]
+            dia = aula["dia"]
+            horario = aula["horario"]
+            sala = aula["sala"]
+            disciplina = aula["disciplina"]
+
+            chave_horario = (dia, horario, sala)
+            chave_prof = (dia, horario, professor)
+            chave_turma = (dia, horario, turma)
+            chave_disc_turma = (disciplina, turma)
+
+            aulas_alocadas[chave_disc_turma] = aulas_alocadas.get(chave_disc_turma, 0) + 1
+
+            # Penalidade leve por conflitos (antes era 10)
+            if chave_horario in horarios_ocupados:
+                penalidade += 2
+            else:
+                horarios_ocupados[chave_horario] = True
+
+            if chave_prof in professor_ocupado:
+                penalidade += 2
+            else:
+                professor_ocupado[chave_prof] = True
+
+            if chave_turma in turma_ocupada:
+                penalidade += 2
+            else:
+                turma_ocupada[chave_turma] = True
+
+            # Penalizar indisponibilidade
+            if not self.professor_esta_disponivel(professor, dia, horario):
+                penalidade += 5
+
+            # Penalizar levemente sexta
+            if dia == "Sexta":
+                penalidade += 1
+
+        # Penalidade forte por aulas faltantes
+        for _, row in self.disciplinas.iterrows():
+            chave = (row["CODDISC"], row["CODTURMA"])
+            carga = row["CARGAHORARIA"]
+            alocadas = aulas_alocadas.get(chave, 0)
+            if alocadas < carga:
+                faltam = carga - alocadas
+                penalidade += faltam * 50  # MUITO mais pesado
+
+        return penalidade
+    
+    def calcular_fitness(self, individuo):
+        """📊 Calcula fitness CORRIGIDO para distribuição perfeita"""
+        if not individuo:
+            return 10000
+        
+        fitness = 0
+        
+        # Estruturas para análise
+        ocupacao_slots = defaultdict(list)
+        distribuicao_semanal = defaultdict(int)
+        aulas_por_disciplina_dia = defaultdict(lambda: defaultdict(int))
+        
+        for aula in individuo:
+            slot = (aula['dia'], aula['horario'])
+            ocupacao_slots[slot].append(aula)
+            distribuicao_semanal[aula['dia']] += 1
+            aulas_por_disciplina_dia[aula['disciplina']][aula['dia']] += 1
+        
+        # 1. PENALIZAÇÃO CRÍTICA: Conflitos de horário
+        for conflitos in ocupacao_slots.values():
+            if len(conflitos) > 1:
+                fitness += (len(conflitos) - 1) * 2000  # Peso altíssimo
+        
+        # 2. OBJETIVO PRINCIPAL: Distribuição perfeita
+        # Segunda-Quinta: 4 aulas cada (18:50-21:20)
+        for dia in ['Segunda', 'Terça', 'Quarta', 'Quinta']:
+            aulas_dia = distribuicao_semanal[dia]
+            if aulas_dia == 4:
+                fitness -= 200  # BÔNUS GRANDE por dia completo
+            else:
+                fitness += abs(4 - aulas_dia) * 100  # Penalização por não ter 4
+        
+        # Sexta: Ideal 3 aulas (18:50-20:30)
+        aulas_sexta = distribuicao_semanal['Sexta']
+        if aulas_sexta == 3:
+            fitness -= 150  # BÔNUS por sexta ideal
+        elif aulas_sexta < 3:
+            fitness += (3 - aulas_sexta) * 50  # Penalização leve por menos
+        else:
+            fitness += (aulas_sexta - 3) * 200  # Penalização pesada por mais
+        
+        # 3. BÔNUS: Aulas começando às 18:50 (máxima prioridade)
+        for dia in self.dias:
+            aulas_dia = [a for a in individuo if a['dia'] == dia]
+            if aulas_dia:
+                # Verificar se primeira aula é às 18:50
+                primeira_aula = min(aulas_dia, key=lambda x: self.horarios.index(x['horario']))
+                if primeira_aula['horario'] == '18:50':
+                    fitness -= 100  # BÔNUS por começar cedo
+                else:
+                    fitness += 150  # PENALIZAÇÃO por não começar às 18:50
+        
+        # 4. PENALIZAÇÃO: Janelas de horário
+        for dia in self.dias:
+            aulas_dia = sorted([a for a in individuo if a['dia'] == dia], 
+                             key=lambda x: self.horarios.index(x['horario']))
+            
+            if len(aulas_dia) > 1:
+                horarios_indices = [self.horarios.index(a['horario']) for a in aulas_dia]
+                for i in range(len(horarios_indices) - 1):
+                    if horarios_indices[i+1] - horarios_indices[i] > 1:
+                        fitness += 300  # PENALIZAÇÃO PESADA por janela
+        
+        # 5. VERIFICAÇÃO: Regras específicas das disciplinas
+        for _, disciplina in self.disciplinas.iterrows():
+            codigo = disciplina['CODDISC']
+            num_aulas = disciplina['CARGAHORARIA']
+            dias_disciplina = aulas_por_disciplina_dia[codigo]
+            
+            if num_aulas == 2:
+                # Deve estar em 1 dia com 2 aulas seguidas
+                if len(dias_disciplina) == 1 and list(dias_disciplina.values())[0] == 2:
+                    fitness -= 50  # BÔNUS por regra correta
+                else:
+                    fitness += 400  # PENALIZAÇÃO por regra incorreta
+            
+            elif num_aulas == 3:
+                # Deve estar em 2 dias (2+1)
+                if len(dias_disciplina) == 2 and sorted(dias_disciplina.values()) == [1, 2]:
+                    fitness -= 50  # BÔNUS por regra correta
+                else:
+                    fitness += 400  # PENALIZAÇÃO por regra incorreta
+            
+            elif num_aulas == 4:
+                # Deve estar em 2 dias (2+2)
+                if len(dias_disciplina) == 2 and sorted(dias_disciplina.values()) == [2, 2]:
+                    fitness -= 50  # BÔNUS por regra correta
+                else:
+                    fitness += 400  # PENALIZAÇÃO por regra incorreta
+        
+        # 6. BÔNUS: Total de aulas alocadas
+        fitness -= len(individuo) * 5
+        
+        return max(0, fitness)
+    
+    def relatorio_aulas_faltantes(self, individuo):
+        """📋 Relatório de aulas faltantes"""
+        aulas_alocadas = {}
+
+        for aula in individuo:
+            chave = (aula["disciplina"], aula["turma"])
+            aulas_alocadas[chave] = aulas_alocadas.get(chave, 0) + 1
+
+        print("\n🔍 RELATÓRIO DE AULAS FALTANTES:")
+        for _, row in self.disciplinas.iterrows():
+            chave = (row["CODDISC"], 'SIN-2A-N')  # CORREÇÃO: usar turma única
+            carga = row["CARGAHORARIA"]
+            alocadas = aulas_alocadas.get(chave, 0)
+            if alocadas < carga:
+                print(f"- {row['NOME']} (Turma SIN-2A-N): {alocadas}/{carga} aulas alocadas")
+    
     def criar_populacao_inicial(self):
-        """🧬 Cria população inicial com método corrigido"""
+        """🧬 Cria população"""
         populacao = []
         
-        print(f"🧬 Criando população inicial de {self.tamanho_populacao} indivíduos...")
+        print(f"🧬 Criando população de {self.tamanho_populacao} indivíduos...")
         
         for i in range(self.tamanho_populacao):
-            if (i + 1) % 10 == 0:
-                print(f"   Criando indivíduo {i+1}/{self.tamanho_populacao}")
-            
-            individuo = self.criar_individuo_mais_flexivel()
+            individuo = self.criar_individuo_otimizado()
             populacao.append(individuo)
         
-        # Calcular fitness da população inicial
-        fitness_inicial = [self.calcular_fitness_corrigido(ind) for ind in populacao]
-        melhor_fitness_inicial = min(fitness_inicial)
-        media_fitness_inicial = sum(fitness_inicial) / len(fitness_inicial)
-        
-        print(f"✅ População inicial criada:")
-        print(f"   Melhor fitness inicial: {melhor_fitness_inicial}")
-        print(f"   Fitness médio inicial: {media_fitness_inicial:.1f}")
-        print(f"   Aulas no melhor indivíduo: {len(populacao[fitness_inicial.index(melhor_fitness_inicial)])}")
-        
         return populacao
-
+    
     def selecao_torneio(self, populacao, k=3):
-        """🏆 Seleção por torneio"""
-        fitness_populacao = [self.calcular_fitness_corrigido(ind) for ind in populacao]
+        """🏆 Seleção"""
+        fitness_populacao = [self.calcular_fitness(ind) for ind in populacao]
         
         selecionados = []
         for _ in range(len(populacao)):
-            # Selecionar k indivíduos aleatórios
-            indices_torneio = random.sample(range(len(populacao)), k)
-            
-            # Encontrar o melhor (menor fitness)
+            indices_torneio = random.sample(range(len(populacao)), min(k, len(populacao)))
             melhor_idx = min(indices_torneio, key=lambda i: fitness_populacao[i])
             selecionados.append(populacao[melhor_idx].copy())
         
         return selecionados
-
-    def crossover_baseado_ordem(self, pai1, pai2):
-        """🧬 Crossover preservando estrutura"""
-        if random.random() > self.taxa_crossover:
+    
+    def crossover(self, pai1, pai2):
+        """🧬 Crossover"""
+        if random.random() > self.taxa_crossover or not pai1 or not pai2:
             return pai1.copy(), pai2.copy()
         
-        if not pai1 or not pai2:
-            return pai1.copy(), pai2.copy()
-        
-        # Crossover simples: trocar metades
         ponto_corte = len(pai1) // 2
         
         filho1 = pai1[:ponto_corte] + pai2[ponto_corte:]
         filho2 = pai2[:ponto_corte] + pai1[ponto_corte:]
         
         return filho1, filho2
-
-    def mutacao_flexivel(self, individuo):
-        """🔄 Mutação flexível"""
+    
+    def mutacao(self, individuo):
+        """🔄 Mutação"""
         if random.random() > self.taxa_mutacao or not individuo:
             return individuo
         
-        # Escolher gene aleatório para mutar
-        idx_gene = random.randint(0, len(individuo) - 1)
-        gene = individuo[idx_gene].copy()
+        # Mutação simples: trocar dia de uma aula
+        if len(individuo) > 0:
+            idx = random.randint(0, len(individuo) - 1)
+            individuo[idx]['dia'] = random.choice(self.dias)
         
-        # Tipo de mutação aleatória
-        tipo_mutacao = random.choice(['professor', 'sala', 'horario', 'dia'])
-        
-        if tipo_mutacao == 'professor':
-            # Trocar professor (preferir habilitado)
-            gene['professor'] = self.escolher_professor_habilitado_flexivel(gene['nome_disciplina'])
-        
-        elif tipo_mutacao == 'sala':
-            # Trocar sala aleatória
-            gene['sala'] = random.choice(self.salas['CODSALA'].tolist())
-        
-        elif tipo_mutacao == 'horario':
-            # Trocar horário
-            gene['horario'] = random.choice(self.horarios_noturnos)
-        
-        elif tipo_mutacao == 'dia':
-            # Trocar dia
-            gene['dia'] = random.choice(self.dias_semana)
-        
-        # Aplicar mutação
-        individuo[idx_gene] = gene
         return individuo
-
-    def evoluir_populacao(self, populacao_inicial):
-        """🚀 Evolução da população com método corrigido"""
-        populacao = populacao_inicial.copy()
+    
+    def evoluir(self):
+        """🚀 Evolução"""
+        populacao = self.criar_populacao_inicial()
         
-        print(f"\n🚀 Iniciando evolução com {len(populacao)} indivíduos...")
+        print(f"🚀 Iniciando evolução...")
         
         for geracao in range(self.max_geracoes):
-            # Calcular fitness da população
-            fitness_populacao = [self.calcular_fitness_corrigido(ind) for ind in populacao]
+            fitness_populacao = [self.calcular_fitness(ind) for ind in populacao]
             
-            # Encontrar melhor indivíduo
             melhor_fitness_geracao = min(fitness_populacao)
             idx_melhor = fitness_populacao.index(melhor_fitness_geracao)
-            melhor_individuo_geracao = populacao[idx_melhor].copy()
+            melhor_individuo = populacao[idx_melhor].copy()
             
-            # Atualizar histórico
             self.historico_fitness.append(melhor_fitness_geracao)
             
-            # Verificar se melhorou
             if melhor_fitness_geracao < self.melhor_fitness:
                 self.melhor_fitness = melhor_fitness_geracao
-                self.melhor_solucao = melhor_individuo_geracao.copy()
-                self.geracoes_sem_melhoria = 0
-            else:
-                self.geracoes_sem_melhoria += 1
+                self.melhor_solucao = melhor_individuo.copy()
             
-            # Mostrar progresso
             if geracao % 25 == 0:
-                print(f"Geração {geracao}: Melhor Fitness = {melhor_fitness_geracao}")
+                print(f"Geração {geracao}: Fitness = {melhor_fitness_geracao}")
             
-            # Critério de parada
-            if (self.geracoes_sem_melhoria >= self.max_geracoes_sem_melhoria or 
-                melhor_fitness_geracao == 0):
-                print(f"Parada por convergência na geração {geracao}")
+            if melhor_fitness_geracao == 0:
+                print(f"🎯 Solução perfeita na geração {geracao}!")
                 break
             
-            # Criar nova população
+            # Nova população
             nova_populacao = []
             
-            # Elitismo: manter os melhores
+            # Elitismo
             num_elite = int(len(populacao) * self.taxa_elitismo)
-            indices_ordenados = sorted(range(len(fitness_populacao)), key=lambda i: fitness_populacao[i])
+            indices_ordenados = sorted(range(len(populacao)), key=lambda i: fitness_populacao[i])
             
             for i in range(num_elite):
                 nova_populacao.append(populacao[indices_ordenados[i]].copy())
             
-            # Completar população com seleção, crossover e mutação
+            # Completar população
             while len(nova_populacao) < len(populacao):
-                # Seleção
-                pais = self.selecao_torneio([populacao[i] for i in indices_ordenados[:len(populacao)//2]], k=3)
+                pais = self.selecao_torneio(populacao)
+                pai1, pai2 = random.sample(pais, 2)
                 
-                if len(pais) >= 2:
-                    pai1, pai2 = random.sample(pais, 2)
-                    
-                    # Crossover
-                    filho1, filho2 = self.crossover_baseado_ordem(pai1, pai2)
-                    
-                    # Mutação
-                    filho1 = self.mutacao_flexivel(filho1)
-                    filho2 = self.mutacao_flexivel(filho2)
-                    
-                    # Adicionar filhos
-                    if len(nova_populacao) < len(populacao):
-                        nova_populacao.append(filho1)
-                    if len(nova_populacao) < len(populacao):
-                        nova_populacao.append(filho2)
+                filho1, filho2 = self.crossover(pai1, pai2)
+                filho1 = self.mutacao(filho1)
+                filho2 = self.mutacao(filho2)
+                
+                if len(nova_populacao) < len(populacao):
+                    nova_populacao.append(filho1)
+                if len(nova_populacao) < len(populacao):
+                    nova_populacao.append(filho2)
             
             populacao = nova_populacao
         
         return self.melhor_solucao
-
-    def gerar_relatorio_resultado(self, solucao):
-        """📋 Gera relatório detalhado dos resultados"""
-        if not solucao:
-            print("❌ Nenhuma solução para reportar")
-            return
+    
+    def analisar_solucao(self, solucao):
+        """📊 Analisa solução"""
+        print(f"\n📊 ANÁLISE DA SOLUÇÃO:")
         
-        fitness_final = self.calcular_fitness_corrigido(solucao)
+        distribuicao = defaultdict(int)
+        for aula in solucao:
+            distribuicao[aula['dia']] += 1
         
-        # Estatísticas básicas
-        total_aulas_alocadas = len(solucao)
-        salas_utilizadas = len(set(aula['sala'] for aula in solucao))
-        professores_ativos = len(set(aula['professor'] for aula in solucao))
-        
-        # Calcular taxa de ocupação
-        slots_utilizados = total_aulas_alocadas
-        slots_disponiveis = len(self.dias_semana) * len(self.horarios_noturnos) * salas_utilizadas
-        taxa_ocupacao = (slots_utilizados / slots_disponiveis) * 100 if slots_disponiveis > 0 else 0
-        
-        # Classificar qualidade
-        if fitness_final == 0:
-            qualidade = "Perfeita"
-        elif fitness_final < 500:
-            qualidade = "Excelente"
-        elif fitness_final < 2000:
-            qualidade = "Boa"
-        elif fitness_final < 5000:
-            qualidade = "Regular"
-        else:
-            qualidade = "Precisa melhorar"
-        
-        print(f"\n📋 RELATÓRIO DA SOLUÇÃO:")
-        print(f"   Fitness final: {fitness_final}")
-        print(f"   Total de aulas: {total_aulas_alocadas}")
-        print(f"   Salas utilizadas: {salas_utilizadas}")
-        print(f"   Professores ativos: {professores_ativos}")
-        print(f"   Taxa de ocupação: {taxa_ocupacao:.1f}%")
-        print(f"   Qualidade: {qualidade}")
-        
-        return {
-            'fitness': fitness_final,
-            'total_aulas': total_aulas_alocadas,
-            'salas_utilizadas': salas_utilizadas,
-            'professores_ativos': professores_ativos,
-            'taxa_ocupacao': taxa_ocupacao,
-            'qualidade': qualidade
-        }
-
-    def salvar_resultados(self, solucao, relatorio):
-        """💾 Salva resultados em arquivos"""
+        print(f"📅 Distribuição semanal:")
+        for dia in self.dias:
+            aulas = distribuicao[dia]
+            print(f"   {dia}: {aulas} aulas")
+    
+    def salvar_resultados(self, solucao):
+        """💾 Salva resultados"""
         try:
-            # Criar pasta resultados se não existir
             if not os.path.exists('resultados'):
                 os.makedirs('resultados')
             
-            # Salvar horário em CSV
-            if solucao:
-                df_horario = pd.DataFrame(solucao)
-                df_horario.to_csv('resultados/horario_otimizado.csv', index=False)
-                print("Horário salvo em: resultados/horario_otimizado.csv")
+            df_solucao = pd.DataFrame(solucao)
+            df_solucao.to_csv('resultados/horario_otimizado.csv', index=False)
             
-            # Salvar relatório em JSON
-            relatorio_completo = {
+            relatorio = {
                 'timestamp': datetime.now().isoformat(),
-                'parametros_algoritmo': {
-                    'tamanho_populacao': self.tamanho_populacao,
-                    'taxa_mutacao': self.taxa_mutacao,
-                    'max_geracoes': self.max_geracoes
-                },
-                'resultados': relatorio,
+                'fitness_final': self.melhor_fitness,
+                'total_aulas': len(solucao),
                 'historico_fitness': self.historico_fitness
             }
             
             with open('resultados/relatorio_otimizacao.json', 'w') as f:
-                json.dump(relatorio_completo, f, indent=2, ensure_ascii=False)
-            print("Relatório salvo em: resultados/relatorio_otimizacao.json")
+                json.dump(relatorio, f, indent=2)
+            
+            print(f"💾 Resultados salvos!")
             
         except Exception as e:
-            print(f"⚠️ Erro ao salvar resultados: {e}")
-
-    def mostrar_horario_formatado(self, solucao, num_aulas=15):
-        """📅 Mostra horário formatado"""
-        if not solucao:
-            print("❌ Nenhuma solução para mostrar")
+            print(f"⚠️ Erro ao salvar: {e}")
+    
+    def plotar_evolucao(self):
+        """📈 Plota gráfico da evolução"""
+        if not self.historico_fitness:
+            print("❌ Nenhum histórico para plotar")
             return
         
-        print(f"HORÁRIO OTIMIZADO (primeiras {num_aulas} aulas):")
+        plt.figure(figsize=(12, 6))
         
-        # Ordenar por dia e horário
-        solucao_ordenada = sorted(solucao, key=lambda x: (
-            self.dias_semana.index(x['dia']),
-            self.horarios_noturnos.index(x['horario']),
-            x['turma']
-        ))
+        # Gráfico da evolução do fitness
+        plt.subplot(1, 2, 1)
+        plt.plot(self.historico_fitness, 'b-', linewidth=2, label='Melhor Fitness')
+        plt.xlabel('Geração')
+        plt.ylabel('Fitness')
+        plt.title('Evolução do Fitness ao Longo das Gerações')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        
+        # Gráfico da melhoria por geração
+        plt.subplot(1, 2, 2)
+        melhorias = []
+        for i in range(1, len(self.historico_fitness)):
+            if self.historico_fitness[i] < self.historico_fitness[i-1]:
+                melhorias.append(1)
+            else:
+                melhorias.append(0)
+        
+        if melhorias:
+            plt.bar(range(1, len(melhorias)+1), melhorias, alpha=0.7, color='green')
+        plt.xlabel('Geração')
+        plt.ylabel('Houve Melhoria (1=Sim, 0=Não)')
+        plt.title('Melhorias por Geração')
+        plt.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        
+        # Salvar gráfico
+        try:
+            plt.savefig('resultados/evolucao_fitness.png', dpi=300, bbox_inches='tight')
+            print("📈 Gráfico salvo em 'resultados/evolucao_fitness.png'")
+        except Exception as e:
+            print(f"⚠️ Erro ao salvar gráfico: {e}")
+        
+        plt.show()
+    
+    def gerar_grade_visual(self, solucao):
+        """📅 Gera visualização da grade de horários"""
+        if not solucao:
+            print("❌ Nenhuma solução para visualizar")
+            return
+        
+        print(f"\n📅 GRADE DE HORÁRIOS - TURMA SIN-2A-N:")
+        print("=" * 80)
         
         # Cabeçalho
-        print(f"{'Dia':>8} {'Horário':>7} {'Turma':>10} {'Disciplina':>50} {'Professor':>15} {'Sala':>5} {'Aula':>5}")
-        print("-" * 100)
+        header = f"{'Horário':<8}"
+        for dia in self.dias:
+            header += f" | {dia:<12}"
+        print(header)
+        print("-" * 80)
         
-        # Mostrar aulas
-        for i, aula in enumerate(solucao_ordenada[:num_aulas]):
-            disciplina_nome = aula['nome_disciplina'][:45] if len(aula['nome_disciplina']) > 45 else aula['nome_disciplina']
-            
-            # Buscar nome do professor
-            prof_info = self.professores[self.professores['CODPROF'] == aula['professor']]
-            prof_nome = prof_info.iloc[0]['NOME'] if not prof_info.empty else f"Prof{aula['professor']}"
-            prof_nome_formatado = f"{prof_nome} ({aula['professor']})"
-            
-            print(f"{aula['dia']:>8} {aula['horario']:>7} {aula['turma']:>10} {disciplina_nome:>50} {prof_nome_formatado:>15} {aula['sala']:>5} {aula['aula_numero']:>5}")
-
-    def gerar_estatisticas_turmas(self, solucao):
-        """📊 Gera estatísticas por turma"""
-        if not solucao:
-            return
-        
-        print("DISTRIBUIÇÃO POR TURMA:")
-        turmas_contagem = {}
-        
+        # Organizar aulas por slot
+        grade = {}
         for aula in solucao:
-            turma = aula['turma']
-            turmas_contagem[turma] = turmas_contagem.get(turma, 0) + 1
+            slot = (aula['dia'], aula['horario'])
+            if slot not in grade:
+                grade[slot] = []
+            grade[slot].append(aula)
         
-        for turma, quantidade in sorted(turmas_contagem.items()):
-            print(f"   {turma}: {quantidade} aulas distribuídas")
-
-    def executar_otimizacao_corrigida(self):
-        """🚀 Método principal que executa toda a otimização corrigida"""
-        
-        print("🎓 ALGORITMO GENÉTICO COM CORREÇÕES APLICADAS")
-        print("=" * 60)
-        
-        inicio_tempo = time.time()
-        
-        # Etapa 1: Carregamento e processamento corrigido
-        if not self.carregar_e_processar_dados_corrigidos():
-            print("❌ Otimização cancelada devido a problemas nos dados")
-            return None
-        
-        # Etapa 2: Criação de população inicial
-        populacao_inicial = self.criar_populacao_inicial()
-        
-        # Etapa 3: Evolução
-        print("\nIniciando otimização...")
-        melhor_solucao = self.evoluir_populacao(populacao_inicial)
-        
-        # Etapa 4: Resultados
-        tempo_execucao = time.time() - inicio_tempo
-        tempo_formatado = str(timedelta(seconds=int(tempo_execucao)))
-        
-        print("\n" + "=" * 50)
-        print("📈 RESULTADOS DA OTIMIZAÇÃO")
-        print("=" * 50)
-        print(f"⏱Tempo de execução: {tempo_formatado}")
-        print(f"Fitness final: {self.melhor_fitness}")
-        
-        if melhor_solucao:
-            # Gerar relatório
-            relatorio = self.gerar_relatorio_resultado(melhor_solucao)
+        # Imprimir grade
+        for horario in self.horarios:
+            linha = f"{horario:<8}"
             
-            # Mostrar horário
-            self.mostrar_horario_formatado(melhor_solucao)
+            for dia in self.dias:
+                slot = (dia, horario)
+                if slot in grade:
+                    # Pegar primeira aula do slot (em caso de conflito)
+                    aula = grade[slot][0]
+                    disciplina_nome = aula['nome_disciplina'][:10]  # Truncar nome
+                    conteudo = f"{disciplina_nome}"
+                    
+                    # Indicar conflito se houver
+                    if len(grade[slot]) > 1:
+                        conteudo += "*"
+                    
+                    linha += f" | {conteudo:<12}"
+                else:
+                    linha += f" | {'':<12}"
             
-            # Estatísticas por turma
-            self.gerar_estatisticas_turmas(melhor_solucao)
-            
-            # Salvar resultados
-            self.salvar_resultados(melhor_solucao, relatorio)
-            
-            print("=" * 50)
-            print("OTIMIZAÇÃO CONCLUÍDA!")
-            print("=" * 50)
-            
-            # Avaliar qualidade da solução
-            if self.melhor_fitness == 0:
-                print("🎉 PERFEITO! Solução ótima encontrada!")
-            elif self.melhor_fitness < 500:
-                print("✅ EXCELENTE! Solução de alta qualidade!")
-            elif self.melhor_fitness < 2000:
-                print("👍 BOM! Solução aceitável encontrada!")
-            elif self.melhor_fitness < 5000:
-                print("⚠️ REGULAR! Solução com alguns conflitos")
-                print("💡 Tente executar novamente ou ajustar parâmetros")
-            else:
-                print("❌ ATENÇÃO! Solução com muitos conflitos")
-                print("Execute novamente ou ajuste dados")
-            
-            print(f"Taxa de ocupação: {relatorio['taxa_ocupacao']:.1f}%")
-            print("RESUMO FINAL:")
-            print(f"   • Horários: 18:50-22:20 (4 períodos de 50min)")
-            print(f"   • Restrições: Disciplinas 2+ aulas distribuídas")
-            print(f"   • Ocupação: {relatorio['taxa_ocupacao']:.1f}% dos slots")
-            print(f"   • Aulas: {relatorio['total_aulas']} alocadas")
-            print(f"   • Qualidade: {relatorio['qualidade']}")
-            
-        else:
-            print("❌ Nenhuma solução encontrada")
-            print("💡 Tente ajustar parâmetros ou verificar dados")
+            print(linha)
         
-        print("PROJETO FINALIZADO!")
-        print("Arquivos gerados na pasta 'resultados/'")
-        print("Algoritmo respeitando todas as restrições")
+        print("-" * 80)
+        print("* = Conflito de horário")
         
-        return melhor_solucao
-
-    def plotar_convergencia(self):
-        """📈 Plota gráfico de convergência"""
+        # Salvar grade em arquivo texto
         try:
-            if not self.historico_fitness:
-                print("⚠️ Nenhum histórico de fitness para plotar")
-                return
+            with open('resultados/grade_visual.txt', 'w', encoding='utf-8') as f:
+                f.write("GRADE DE HORÁRIOS - TURMA SIN-2A-N\n")
+                f.write("=" * 80 + "\n")
+                f.write(f"Gerada em: {datetime.now().strftime('%d/%m/%Y às %H:%M:%S')}\n")
+                f.write(f"Fitness: {self.melhor_fitness}\n\n")
+                
+                f.write(header + "\n")
+                f.write("-" * 80 + "\n")
+                
+                for horario in self.horarios:
+                    linha = f"{horario:<8}"
+                    for dia in self.dias:
+                        slot = (dia, horario)
+                        if slot in grade:
+                            aula = grade[slot][0]
+                            disciplina_nome = aula['nome_disciplina'][:10]
+                            conteudo = f"{disciplina_nome}"
+                            if len(grade[slot]) > 1:
+                                conteudo += "*"
+                            linha += f" | {conteudo:<12}"
+                        else:
+                            linha += f" | {'':<12}"
+                    f.write(linha + "\n")
+                
+                f.write("-" * 80 + "\n")
+                f.write("* = Conflito de horário\n")
             
-            plt.figure(figsize=(10, 6))
-            plt.plot(self.historico_fitness, 'b-', linewidth=2)
-            plt.title('Convergência do Algoritmo Genético', fontsize=14, fontweight='bold')
-            plt.xlabel('Geração')
-            plt.ylabel('Fitness (menor é melhor)')
-            plt.grid(True, alpha=0.3)
-            plt.tight_layout()
-            
-            # Salvar gráfico
-            if not os.path.exists('resultados'):
-                os.makedirs('resultados')
-            
-            plt.savefig('resultados/convergencia.png', dpi=300, bbox_inches='tight')
-            plt.show()
-            print("📊 Gráfico de convergência salvo em: resultados/convergencia.png")
+            print("📄 Grade visual salva em 'resultados/grade_visual.txt'")
             
         except Exception as e:
-            print(f"⚠️ Erro ao plotar convergência: {e}")
+            print(f"⚠️ Erro ao salvar grade visual: {e}")
+    
+    def executar(self):
+        """🚀 Execução principal"""
+        print("🎓 EXECUTANDO ALGORITMO GENÉTICO")
+        print("=" * 50)
+        
+        inicio = time.time()
+        
+        if not self.carregar_dados():
+            return None
+        
+        solucao = self.evoluir()
+        
+        tempo_execucao = time.time() - inicio
+        
+        print(f"\n🏆 RESULTADOS:")
+        print(f"⏱️ Tempo: {tempo_execucao:.2f}s")
+        print(f"🎯 Fitness: {self.melhor_fitness}")
+        print(f"🧬 Gerações: {len(self.historico_fitness)}")
+        
+        if solucao:
+            self.analisar_solucao(solucao)
+            self.gerar_grade_visual(solucao)
+            self.relatorio_aulas_faltantes(solucao)
+            self.salvar_resultados(solucao)
+            
+            # Tentar plotar evolução
+            try:
+                self.plotar_evolucao()
+            except Exception as e:
+                print(f"⚠️ Erro ao plotar: {e}")
+            
+            print(f"\n🎉 EXECUÇÃO CONCLUÍDA COM SUCESSO!")
+            print(f"📁 Verifique a pasta 'resultados/' para todos os arquivos")
+        
+        return solucao
 
 def main():
-    """🚀 Função principal do programa"""
-    
-    print("🎓 FIAP TECH CHALLENGE - ALGORITMO GENÉTICO CORRIGIDO")
+    """🚀 Função principal"""
+    print("🎓 TECH CHALLENGE FIAP - ALGORITMO GENÉTICO")
+    print("📊 Otimização de Grade de Horários Acadêmicos")
     print("=" * 60)
-    print("📊 Versão com correções para resolver FITNESS = 28800")
-    print("🎯 Objetivo: Otimizar horários acadêmicos noturnos")
-    print("⚡ Implementa correções nos dados e algoritmo")
-    print()
     
-    try:
-        # Criar instância do otimizador
-        otimizador = GeneticScheduleOptimizer()
-        
-        # Executar otimização completa
-        resultado = otimizador.executar_otimizacao_corrigida()
-        
-        # Plotar convergência se houver dados
-        if otimizador.historico_fitness:
-            resposta = input("\nDeseja plotar gráfico de convergência? (s/n): ").lower()
-            if resposta == 's':
-                otimizador.plotar_convergencia()
-        
-        print("\n✅ Execução concluída com sucesso!")
-        
-        if resultado:
-            print(f"📊 Solução encontrada com fitness: {otimizador.melhor_fitness}")
-            print(f"📋 {len(resultado)} aulas alocadas")
-            print("📁 Resultados salvos na pasta 'resultados/'")
-        
-    except KeyboardInterrupt:
-        print("\n⚠️ Execução interrompida pelo usuário")
-    except Exception as e:
-        print(f"\n❌ Erro durante execução: {e}")
-        import traceback
-        traceback.print_exc()
+    algoritmo = AlgoritmoGeneticoHorarios()
+    solucao = algoritmo.executar()
+    
+    if solucao:
+        print(f"\n✅ SUCESSO!")
+        print(f"📈 Grade de horários otimizada gerada com {len(solucao)} aulas")
+        print(f"🎯 Fitness final: {algoritmo.melhor_fitness}")
+        print(f"📁 Resultados salvos em 'resultados/'")
+        return solucao
+    else:
+        print(f"\n❌ FALHA na execução")
+        print(f"💡 Verifique:")
+        print(f"   - Se todos os arquivos estão na pasta 'dados/'")
+        print(f"   - Se os dados estão no formato correto")
+        print(f"   - Se há disponibilidade suficiente dos professores")
+        return None
 
 if __name__ == "__main__":
-    main()
+    # Executar programa principal
+    solucao_final = main()
+    
+    if solucao_final:
+        print(f"\n🔍 ANÁLISE FINAL:")
+        print(f"   Total de aulas alocadas: {len(solucao_final)}")
+        
+        # Mostrar estatísticas básicas
+        disciplinas_count = {}
+        for aula in solucao_final:
+            disc = aula['nome_disciplina']
+            disciplinas_count[disc] = disciplinas_count.get(disc, 0) + 1
+        
+        print(f"   Disciplinas processadas:")
+        for disc, count in disciplinas_count.items():
+            print(f"     - {disc}: {count} aulas")
+        
+        print(f"\n🎓 Algoritmo Genético executado com sucesso!")
+        print(f"📚 Para mais detalhes, consulte os arquivos na pasta 'resultados/'")
+    else:
+        print(f"\n🔧 Para resolver problemas:")
+        print(f"   1. Verifique se a pasta 'dados/' existe")
+        print(f"   2. Confirme que todos os 5 arquivos .xlsx estão presentes")
+        print(f"   3. Valide se os dados seguem o formato esperado")
+        print(f"   4. Execute novamente o programa")

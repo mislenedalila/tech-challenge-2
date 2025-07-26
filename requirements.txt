@@ -1,28 +1,50 @@
-# Manipulação de dados
+# === DEPENDÊNCIAS PRINCIPAIS ===
+# Análise e manipulação de dados
 pandas>=1.3.0
 numpy>=1.21.0
 
-# Leitura de arquivos Excel (OBRIGATÓRIO)
-openpyxl>=3.0.7
-
-# Visualização de dados
-matplotlib>=3.4.0
+# Visualização e gráficos
+matplotlib>=3.5.0
 seaborn>=0.11.0
 
-# Manipulação de datas e tempo
+# Leitura de arquivos Excel
+openpyxl>=3.0.9
+
+# === DEPENDÊNCIAS PARA FUNCIONALIDADES EXTRAS ===
+# Para gerar PDFs (gerador de quadros)
+reportlab>=3.6.0
+
+# Para melhor formatação de datas
 python-dateutil>=2.8.0
 
-# Para notebooks Jupyter (opcional)
-jupyter>=1.0.0
-notebook>=6.4.0
+# Fontes adicionais para matplotlib (Linux/Mac)
+# Descomente se tiver problemas de fonte
+# fonttools>=4.0.0
 
-# Para testes (opcional)
-pytest>=6.2.0
-pytest-cov>=2.12.0
+# === UTILITÁRIOS ===
+# Configurações e setuptools
+setuptools>=65.0.0
 
-# Utilitários adicionais
-tqdm>=4.61.0  # Para barras de progresso (opcional)
+# === DEPENDÊNCIAS OPCIONAIS ===
+# Descomente se precisar usar Jupyter Notebooks
+# jupyter>=1.0.0
+# notebook>=6.4.0
+# ipykernel>=6.0.0
 
-# Para geração de PDFs (opcional)
-reportlab>=3.6.0  # Para PDFs avançados
-weasyprint>=54.0  # Para converter HTML para PDF
+# Descomente se quiser implementar testes
+# pytest>=7.0.0
+# pytest-cov>=4.0.0
+
+# Descomente para análise de performance
+# memory-profiler>=0.60.0
+# line-profiler>=4.0.0
+
+# === COMPATIBILIDADE ===
+# Garante compatibilidade com versões mais antigas do Python
+six>=1.16.0
+
+# === SOLUÇÕES PARA PROBLEMAS COMUNS ===
+# Se tiver erro "findfont: Font family not found":
+# 1. No Linux: sudo apt-get install fonts-liberation fonts-dejavu
+# 2. No Mac: brew install font-dejavu
+# 3. Ou descomente: fonttools>=4.0.0

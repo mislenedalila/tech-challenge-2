@@ -52,10 +52,11 @@ class Aula:
 
 class ScheduleGA_V2:
     """
-    Versão 2: Agenda com pontuação positiva
+    Versão 2: Agenda com pontuação positiva e distribuição inteligente
     - Genoma = Matriz (agenda) 5 dias x 4 horários
     - Fitness = Soma de pontuações positivas
     - Garantia de todas as disciplinas atendidas
+    - Distribuição inteligente das disciplinas
     """
     
     def __init__(self):
@@ -74,8 +75,9 @@ class ScheduleGA_V2:
         self.turmas = {}
         self.disponibilidades = {}
         
-        # Lista de todas as aulas necessárias
+        # Lista de todas as aulas necessárias e distribuição planejada
         self.aulas_obrigatorias = []
+        self.distribuicao_disciplinas = {}
         
         # Parâmetros do AG
         self.populacao_size = 50
@@ -89,6 +91,7 @@ class ScheduleGA_V2:
             'disciplina_atendida': 1000,          # Todas as aulas de uma disciplina alocadas
             'disponibilidade_respeitada': 500,    # Professor disponível no horário
             'distribuicao_equilibrada': 200,      # Aulas bem distribuídas na semana
+            'distribuicao_inteligente': 300,      # Distribuição planejada respeitada
             'sem_sobrecarga_dia': 150,           # Não mais que 4 aulas por dia
             'sem_janelas': 100,                  # Aulas consecutivas por dia
             'professor_satisfeito': 80,          # Professor com horário concentrado
@@ -157,8 +160,9 @@ class ScheduleGA_V2:
         self._criar_aulas_obrigatorias()
     
     def _criar_aulas_obrigatorias(self):
-        """Cria lista de todas as aulas que devem ser alocadas"""
+        """Cria lista de todas as aulas que devem ser alocadas com distribuição inteligente"""
         self.aulas_obrigatorias = []
+        self.distribuicao_disciplinas = {}  # Para controlar distribuição por dia
         
         for disc_codigo, disciplina in self.disciplinas.items():
             # Encontrar professor da disciplina
@@ -168,16 +172,70 @@ class ScheduleGA_V2:
                     professor = prof_codigo
                     break
             
-            # Criar aulas necessárias
-            for _ in range(disciplina.carga_horaria):
-                aula = Aula(
-                    disciplina=disc_codigo,
-                    professor=professor,
-                    sala=list(self.salas.keys())[0]  # Por enquanto só temos uma sala
-                )
-                self.aulas_obrigatorias.append(aula)
+            # Definir distribuição inteligente baseada na carga horária
+            carga = disciplina.carga_horaria
+            if carga == 4:
+                # 4 aulas: 2 aulas por dia em 2 dias diferentes
+                distribuicao = [2, 2]
+            elif carga == 3:
+                # 3 aulas: 2 aulas em um dia, 1 aula em outro dia
+                distribuicao = [2, 1]
+            elif carga == 2:
+                # 2 aulas: 1 aula por dia em 2 dias diferentes
+                distribuicao = [1, 1]
+            elif carga == 1:
+                # 1 aula: apenas 1 dia
+                distribuicao = [1]
+            else:
+                # Para cargas maiores: distribuir o mais equilibrado possível
+                # Ex: 5 aulas = [3, 2], 6 aulas = [2, 2, 2]
+                distribuicao = self._calcular_distribuicao_equilibrada(carga)
+            
+            # Armazenar distribuição para esta disciplina
+            self.distribuicao_disciplinas[disc_codigo] = {
+                'distribuicao': distribuicao,
+                'professor': professor,
+                'aulas_criadas': 0
+            }
+            
+            # Criar aulas com identificação de grupo
+            for grupo_idx, aulas_no_grupo in enumerate(distribuicao):
+                for aula_no_grupo in range(aulas_no_grupo):
+                    aula = Aula(
+                        disciplina=disc_codigo,
+                        professor=professor,
+                        sala=list(self.salas.keys())[0]  # Por enquanto só temos uma sala
+                    )
+                    # Adicionar metadata para controle de distribuição
+                    aula.grupo_dia = grupo_idx
+                    aula.posicao_no_grupo = aula_no_grupo
+                    self.aulas_obrigatorias.append(aula)
         
         print(f"📚 Total de aulas obrigatórias: {len(self.aulas_obrigatorias)}")
+        print("📋 Distribuição planejada por disciplina:")
+        for disc_codigo, info in self.distribuicao_disciplinas.items():
+            disciplina = self.disciplinas[disc_codigo]
+            print(f"   • {disciplina.nome[:30]}: {info['distribuicao']} aulas por dia")
+    
+    def _calcular_distribuicao_equilibrada(self, carga_total):
+        """Calcula distribuição equilibrada para cargas horárias maiores"""
+        if carga_total <= 5:
+            # Para 5 aulas: [3, 2] ou [2, 3]
+            maior = (carga_total + 1) // 2
+            menor = carga_total - maior
+            return [maior, menor] if maior != menor else [maior, menor]
+        else:
+            # Para cargas muito grandes, dividir em grupos de no máximo 3
+            grupos = []
+            restante = carga_total
+            while restante > 0:
+                if restante >= 3:
+                    grupos.append(3)
+                    restante -= 3
+                else:
+                    grupos.append(restante)
+                    restante = 0
+            return grupos
     
     def criar_agenda_vazia(self) -> np.ndarray:
         """Cria uma agenda vazia (matriz 5x4)"""
@@ -185,44 +243,112 @@ class ScheduleGA_V2:
     
     def criar_cromossomo(self) -> np.ndarray:
         """
-        Cria um cromossomo (agenda completa) garantindo que todas as disciplinas sejam atendidas
-        EXATAMENTE com a carga horária especificada
+        Cria um cromossomo (agenda completa) respeitando a distribuição inteligente das disciplinas
         """
         agenda = self.criar_agenda_vazia()
-        aulas_para_alocar = copy.deepcopy(self.aulas_obrigatorias)
         
-        # Embaralhar as aulas para aleatoriedade
-        random.shuffle(aulas_para_alocar)
-        
-        # Criar lista de slots disponíveis
-        slots_disponiveis = [(d, h) for d in range(self.num_dias) for h in range(self.num_horarios)]
-        random.shuffle(slots_disponiveis)
-        
-        # Alocar APENAS as aulas necessárias (sem extras)
-        for aula in aulas_para_alocar:
-            if not slots_disponiveis:  # Se não há mais slots, parar
-                break
-                
-            # Tentar encontrar um slot válido para a aula
-            slot_encontrado = False
-            for i, (dia, horario) in enumerate(slots_disponiveis):
-                if agenda[dia, horario] is None:
-                    # Verificar se o professor está disponível (se possível)
-                    if self._professor_disponivel(aula.professor, dia, horario):
-                        agenda[dia, horario] = aula
-                        slots_disponiveis.pop(i)
-                        slot_encontrado = True
-                        break
+        # Organizar aulas por disciplina e grupo
+        aulas_por_disciplina = {}
+        for aula in self.aulas_obrigatorias:
+            disc = aula.disciplina
+            if disc not in aulas_por_disciplina:
+                aulas_por_disciplina[disc] = {}
             
-            # Se não encontrou slot com disponibilidade, forçar alocação em qualquer slot livre
-            if not slot_encontrado and slots_disponiveis:
-                for i, (dia, horario) in enumerate(slots_disponiveis):
-                    if agenda[dia, horario] is None:
-                        agenda[dia, horario] = aula
-                        slots_disponiveis.pop(i)
-                        break
+            grupo = aula.grupo_dia
+            if grupo not in aulas_por_disciplina[disc]:
+                aulas_por_disciplina[disc][grupo] = []
+            
+            aulas_por_disciplina[disc][grupo].append(aula)
+        
+        # Lista de dias disponíveis para cada disciplina
+        dias_disponiveis = list(range(self.num_dias))
+        
+        # Alocar cada disciplina respeitando a distribuição
+        for disc_codigo, grupos in aulas_por_disciplina.items():
+            disciplina = self.disciplinas[disc_codigo]
+            dias_escolhidos = []
+            
+            # Escolher dias diferentes para cada grupo da disciplina
+            dias_para_esta_disciplina = random.sample(dias_disponiveis, 
+                                                     min(len(grupos), len(dias_disponiveis)))
+            
+            for grupo_idx, (grupo, aulas_do_grupo) in enumerate(grupos.items()):
+                if grupo_idx < len(dias_para_esta_disciplina):
+                    dia_escolhido = dias_para_esta_disciplina[grupo_idx]
+                    dias_escolhidos.append(dia_escolhido)
+                    
+                    # Encontrar horários consecutivos disponíveis neste dia
+                    horarios_consecutivos = self._encontrar_horarios_consecutivos(
+                        agenda, dia_escolhido, len(aulas_do_grupo)
+                    )
+                    
+                    if horarios_consecutivos:
+                        # Alocar aulas em horários consecutivos
+                        for i, aula in enumerate(aulas_do_grupo):
+                            if i < len(horarios_consecutivos):
+                                horario = horarios_consecutivos[i]
+                                agenda[dia_escolhido, horario] = aula
+                    else:
+                        # Se não conseguir consecutivos, alocar em qualquer horário disponível
+                        self._alocar_aulas_disponiveis(agenda, dia_escolhido, aulas_do_grupo)
+        
+        # Verificar se sobrou alguma aula não alocada e alocar em slots livres
+        self._alocar_aulas_restantes(agenda, aulas_por_disciplina)
         
         return agenda
+    
+    def _encontrar_horarios_consecutivos(self, agenda: np.ndarray, dia: int, num_aulas: int) -> list:
+        """Encontra horários consecutivos livres em um dia específico"""
+        horarios_livres = []
+        for h in range(self.num_horarios):
+            if agenda[dia, h] is None:
+                horarios_livres.append(h)
+        
+        # Tentar encontrar sequência consecutiva
+        for start in range(len(horarios_livres) - num_aulas + 1):
+            sequencia = horarios_livres[start:start + num_aulas]
+            # Verificar se é realmente consecutiva
+            if all(sequencia[i] == sequencia[0] + i for i in range(len(sequencia))):
+                return sequencia
+        
+        # Se não encontrar consecutivos, retornar os primeiros disponíveis
+        return horarios_livres[:num_aulas] if len(horarios_livres) >= num_aulas else horarios_livres
+    
+    def _alocar_aulas_disponiveis(self, agenda: np.ndarray, dia: int, aulas: list):
+        """Aloca aulas em horários disponíveis de um dia específico"""
+        horarios_livres = [h for h in range(self.num_horarios) if agenda[dia, h] is None]
+        
+        for i, aula in enumerate(aulas):
+            if i < len(horarios_livres):
+                horario = horarios_livres[i]
+                agenda[dia, horario] = aula
+    
+    def _alocar_aulas_restantes(self, agenda: np.ndarray, aulas_por_disciplina: dict):
+        """Aloca qualquer aula que não foi alocada ainda"""
+        # Verificar quais aulas ainda não foram alocadas
+        aulas_na_agenda = set()
+        for d in range(self.num_dias):
+            for h in range(self.num_horarios):
+                if agenda[d, h] is not None:
+                    # Criar identificador único para a aula
+                    aula = agenda[d, h]
+                    aulas_na_agenda.add((aula.disciplina, aula.grupo_dia, aula.posicao_no_grupo))
+        
+        # Encontrar aulas não alocadas
+        aulas_nao_alocadas = []
+        for aula in self.aulas_obrigatorias:
+            id_aula = (aula.disciplina, aula.grupo_dia, aula.posicao_no_grupo)
+            if id_aula not in aulas_na_agenda:
+                aulas_nao_alocadas.append(aula)
+        
+        # Alocar em qualquer slot livre
+        slots_livres = [(d, h) for d in range(self.num_dias) for h in range(self.num_horarios) 
+                       if agenda[d, h] is None]
+        
+        for i, aula in enumerate(aulas_nao_alocadas):
+            if i < len(slots_livres):
+                d, h = slots_livres[i]
+                agenda[d, h] = aula
     
     def _professor_disponivel(self, professor_codigo: str, dia: int, horario: int) -> bool:
         """Verifica se professor está disponível no dia/horário"""
@@ -265,7 +391,7 @@ class ScheduleGA_V2:
         # 2. Pontuação por disponibilidade respeitada
         pontuacao_total += self._pontuar_disponibilidade(agenda)
         
-        # 3. Pontuação por distribuição equilibrada
+        # 3. Pontuação por distribuição equilibrada e inteligente
         pontuacao_total += self._pontuar_distribuicao(agenda)
         
         # 4. Pontuação por não sobrecarga de dias
@@ -328,24 +454,77 @@ class ScheduleGA_V2:
         return pontos
     
     def _pontuar_distribuicao(self, agenda: np.ndarray) -> float:
-        """Pontua distribuição equilibrada das aulas"""
+        """Pontua distribuição equilibrada das aulas e respeito à distribuição planejada"""
         pontos = 0
         
-        # Contar aulas por dia
+        # 1. Pontuar distribuição geral equilibrada entre dias
         aulas_por_dia = []
         for dia in range(self.num_dias):
             count = sum(1 for h in range(self.num_horarios) if agenda[dia, h] is not None)
             aulas_por_dia.append(count)
         
-        # Calcular variação
         if len(aulas_por_dia) > 0:
             media = np.mean(aulas_por_dia)
             variacao = np.std(aulas_por_dia)
-            
             # Menos variação = mais pontos
-            pontos += self.pesos['distribuicao_equilibrada'] * max(0, (2.0 - variacao))
+            pontos += self.pesos['distribuicao_equilibrada'] * max(0, (2.0 - variacao)) * 0.5
+        
+        # 2. Pontuar respeito à distribuição planejada por disciplina
+        for disc_codigo, info_dist in self.distribuicao_disciplinas.items():
+            distribuicao_planejada = info_dist['distribuicao']
+            
+            # Contar como as aulas desta disciplina estão distribuídas na agenda
+            distribuicao_real = [0] * self.num_dias
+            for dia in range(self.num_dias):
+                for horario in range(self.num_horarios):
+                    aula = agenda[dia, horario]
+                    if aula is not None and aula.disciplina == disc_codigo:
+                        distribuicao_real[dia] += 1
+            
+            # Filtrar apenas dias com aulas desta disciplina
+            dias_com_aulas = [count for count in distribuicao_real if count > 0]
+            dias_com_aulas.sort(reverse=True)  # Ordenar do maior para o menor
+            
+            # Verificar se a distribuição real corresponde à planejada
+            if len(dias_com_aulas) == len(distribuicao_planejada):
+                # Comparar distribuições ordenadas
+                distribuicao_planejada_ordenada = sorted(distribuicao_planejada, reverse=True)
+                
+                if dias_com_aulas == distribuicao_planejada_ordenada:
+                    # Distribuição perfeita!
+                    pontos += self.pesos['distribuicao_inteligente']
+                else:
+                    # Distribuição parcial - pontuar proporcionalmente
+                    diferenca = sum(abs(real - planejado) 
+                                  for real, planejado in zip(dias_com_aulas, distribuicao_planejada_ordenada))
+                    total_aulas = sum(distribuicao_planejada)
+                    if total_aulas > 0:
+                        similarity = max(0, 1 - (diferenca / total_aulas))
+                        pontos += self.pesos['distribuicao_inteligente'] * similarity
+            
+            # 3. Bonificar aulas consecutivas no mesmo dia para a mesma disciplina
+            for dia in range(self.num_dias):
+                aulas_consecutivas = self._contar_aulas_consecutivas_disciplina(agenda, dia, disc_codigo)
+                if aulas_consecutivas >= 2:
+                    # Bonificar por ter aulas consecutivas (melhor para o aluno)
+                    pontos += 50 * (aulas_consecutivas - 1)
         
         return pontos
+    
+    def _contar_aulas_consecutivas_disciplina(self, agenda: np.ndarray, dia: int, disciplina: str) -> int:
+        """Conta o maior número de aulas consecutivas de uma disciplina em um dia"""
+        max_consecutivas = 0
+        consecutivas_atual = 0
+        
+        for horario in range(self.num_horarios):
+            aula = agenda[dia, horario]
+            if aula is not None and aula.disciplina == disciplina:
+                consecutivas_atual += 1
+                max_consecutivas = max(max_consecutivas, consecutivas_atual)
+            else:
+                consecutivas_atual = 0
+        
+        return max_consecutivas
     
     def _pontuar_carga_diaria(self, agenda: np.ndarray) -> float:
         """Pontua dias sem sobrecarga (máximo 4 aulas)"""
@@ -541,6 +720,8 @@ class ScheduleGA_V2:
                         professor=professor,
                         sala=list(self.salas.keys())[0]
                     )
+                    nova_aula.grupo_dia = 0  # Grupo padrão para aulas de reparo
+                    nova_aula.posicao_no_grupo = aulas_adicionadas
                     agenda[dia, horario] = nova_aula
                     aulas_adicionadas += 1
         
@@ -643,7 +824,7 @@ class ScheduleGA_V2:
         self._exibir_estatisticas(agenda)
     
     def _exibir_estatisticas(self, agenda: np.ndarray):
-        """Exibe estatísticas da agenda com verificação de carga horária"""
+        """Exibe estatísticas da agenda com verificação de carga horária e distribuição"""
         print("📊 ESTATÍSTICAS DA AGENDA")
         print("-" * 50)
         
@@ -655,15 +836,21 @@ class ScheduleGA_V2:
             total_aulas_agenda += aulas
             print(f"  {dia}: {aulas} aulas")
         
-        # Aulas por disciplina com verificação
+        # Aulas por disciplina com verificação de distribuição
         print("\nAulas por disciplina:")
         aulas_por_disc = {}
+        distribuicao_por_disc = {}
+        
         for d in range(self.num_dias):
             for h in range(self.num_horarios):
                 aula = agenda[d, h]
                 if aula is not None:
                     disc = aula.disciplina
                     aulas_por_disc[disc] = aulas_por_disc.get(disc, 0) + 1
+                    
+                    if disc not in distribuicao_por_disc:
+                        distribuicao_por_disc[disc] = [0] * self.num_dias
+                    distribuicao_por_disc[disc][d] += 1
         
         total_aulas_necessarias = sum(disc.carga_horaria for disc in self.disciplinas.values())
         
@@ -677,12 +864,34 @@ class ScheduleGA_V2:
                 status = "❌"
             else:
                 status = "⚠️"  # Aulas extras
-                
-            print(f"  {status} {disciplina.nome[:30]}: {count}/{necessarias}h", end="")
-            if count > necessarias:
-                print(f" (⚠️ {count - necessarias} extra{'s' if count - necessarias > 1 else ''})")
+            
+            # Mostrar distribuição real vs planejada
+            dist_real = [x for x in distribuicao_por_disc[disc_codigo] if x > 0]
+            dist_real.sort(reverse=True)
+            dist_planejada = sorted(self.distribuicao_disciplinas[disc_codigo]['distribuicao'], reverse=True)
+            
+            print(f"  {status} {disciplina.nome[:30]}: {count}/{necessarias}h")
+            
+            # Mostrar distribuição
+            dist_status = "✅" if dist_real == dist_planejada else "⚠️"
+            print(f"      {dist_status} Distribuição: {dist_real} (planejado: {dist_planejada})")
+        
+        # Verificar aulas consecutivas por disciplina
+        print("\nAulas consecutivas por disciplina:")
+        for disc_codigo, disciplina in self.disciplinas.items():
+            max_consecutivas = 0
+            dias_com_consecutivas = []
+            
+            for d in range(self.num_dias):
+                consecutivas = self._contar_aulas_consecutivas_disciplina_stats(agenda, disc_codigo, d)
+                if consecutivas >= 2:
+                    max_consecutivas = max(max_consecutivas, consecutivas)
+                    dias_com_consecutivas.append(f"{self.dias[d]}({consecutivas})")
+            
+            if dias_com_consecutivas:
+                print(f"  📚 {disciplina.nome[:30]}: {', '.join(dias_com_consecutivas)}")
             else:
-                print()
+                print(f"  ⚠️ {disciplina.nome[:30]}: Sem aulas consecutivas")
         
         # Resumo de slots
         slots_ocupados = total_aulas_agenda
@@ -714,10 +923,39 @@ class ScheduleGA_V2:
         total_disciplinas = len(self.disciplinas)
         print(f"  • Disciplinas com carga correta: {disciplinas_corretas}/{total_disciplinas}")
         
-        if disciplinas_corretas == total_disciplinas:
-            print("  ✅ Todas as disciplinas têm carga horária correta!")
+        # Verificação de distribuição
+        disciplinas_bem_distribuidas = 0
+        for disc_codigo in self.disciplinas.keys():
+            if disc_codigo in distribuicao_por_disc:
+                dist_real = [x for x in distribuicao_por_disc[disc_codigo] if x > 0]
+                dist_real.sort(reverse=True)
+                dist_planejada = sorted(self.distribuicao_disciplinas[disc_codigo]['distribuicao'], reverse=True)
+                if dist_real == dist_planejada:
+                    disciplinas_bem_distribuidas += 1
+        
+        print(f"  • Disciplinas com distribuição correta: {disciplinas_bem_distribuidas}/{total_disciplinas}")
+        
+        if disciplinas_corretas == total_disciplinas and disciplinas_bem_distribuidas == total_disciplinas:
+            print("  ✅ Todas as disciplinas têm carga e distribuição corretas!")
+        elif disciplinas_corretas == total_disciplinas:
+            print("  ✅ Carga horária correta, ⚠️ algumas distribuições podem ser melhoradas!")
         else:
-            print("  ⚠️ Algumas disciplinas têm carga horária incorreta!")
+            print("  ⚠️ Algumas disciplinas têm problemas de carga ou distribuição!")
+    
+    def _contar_aulas_consecutivas_disciplina_stats(self, agenda: np.ndarray, disciplina: str, dia: int) -> int:
+        """Conta aulas consecutivas de uma disciplina em um dia específico para estatísticas"""
+        max_consecutivas = 0
+        consecutivas_atual = 0
+        
+        for horario in range(self.num_horarios):
+            aula = agenda[dia, horario]
+            if aula is not None and aula.disciplina == disciplina:
+                consecutivas_atual += 1
+                max_consecutivas = max(max_consecutivas, consecutivas_atual)
+            else:
+                consecutivas_atual = 0
+        
+        return max_consecutivas
 
 # Exemplo de uso
 if __name__ == "__main__":
@@ -729,5 +967,6 @@ if __name__ == "__main__":
     # Exibir resultados
     ga.exibir_agenda(melhor_agenda)
     
-    print(f"\n🏆 Fitness final: {fitness:.0f} pontos")
-    print(f"📈 Melhoria: {historico[-1] - historico[0]:.0f} pontos")
+    # Estatísticas
+    print(f"\nFitness da melhor solução: {fitness:.0f}")
+    print(f"Melhoria durante evolução: {historico[-1] - historico[0]:.0f}")

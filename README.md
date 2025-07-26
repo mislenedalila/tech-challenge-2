@@ -12,6 +12,8 @@ Este sistema resolve o problema de **alocação de horários acadêmicos** utili
 - **Distribuir equilibradamente** as disciplinas ao longo da semana
 - **Maximizar aproveitamento** dos recursos disponíveis
 - **Comparar abordagens** diferentes para o mesmo problema
+- **Distribuição inteligente implementada na abordagem de pontuação** evita que os alunos tenham muitas aulas consecutivas do mesmo professor
+
 
 ## 🧬 Duas Abordagens Implementadas
 
@@ -57,6 +59,15 @@ fitness = 10000 - penalidades + bonificações
 ---
 
 ### 🔹 **V2 - Pontuação com Agenda (Matriz)**
+
+
+#### 📚 Distribuição por Carga Horária (Abordagem Pontuação):
+
+- 4 aulas: 2 aulas em um dia + 2 aulas em outro dia
+- 3 aulas: 2 aulas em um dia + 1 aula em outro dia
+- 2 aulas: 1 aula em cada dia (2 dias diferentes)
+- 1 aula: 1 dia apenas
+- 5+ aulas: Distribuição equilibrada automática
 
 ```python
 # Representação (matriz 5x4)

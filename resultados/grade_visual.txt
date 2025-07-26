@@ -1,12 +1,12 @@
 GRADE DE HORÁRIOS - TURMA SIN-2A-N
 ================================================================================
-Gerada em: 26/07/2025 às 15:35:06
+Gerada em: 26/07/2025 às 16:35:16
 Fitness: 1960
 
 Horário  | Segunda      | Terça        | Quarta       | Quinta       | Sexta       
 --------------------------------------------------------------------------------
-18:50    | CULTURA E *  | CULTURA E *  | SISTEMAS D   |              |             
-19:40    | ALGORITMOS   | CULTURA E    | CULTURA E    |              |             
+18:50    | ALGORITMOS*  | CULTURA E    | SISTEMAS D   |              | CULTURA E   
+19:40    | CULTURA E    | CULTURA E    |              | ALGORITMOS   |             
 20:30    |              |              |              |              |             
 21:20    |              |              |              |              |             
 --------------------------------------------------------------------------------

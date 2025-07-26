@@ -1,16 +1,3 @@
-#!/usr/bin/env python3
-"""
-TECH CHALLENGE - FASE 2 - SISTEMA INTEGRADO
-Sistema de Otimização de Horários Acadêmicos com Algoritmos Genéticos
-
-Duas abordagens implementadas:
-- V1: Penalização com Lista de Eventos
-- V2: Pontuação com Agenda (Matriz)
-
-Autor: [Seu Nome]
-Data: Julho 2025
-"""
-
 import sys
 import os
 import time
@@ -252,131 +239,6 @@ def executar_otimizacao_parametros():
         print(f"❌ Erro durante otimização: {e}")
         return None
 
-def mostrar_informacoes_detalhadas():
-    """Mostra informações detalhadas sobre as abordagens"""
-    print("\n" + "="*80)
-    print("ℹ️  INFORMAÇÕES DETALHADAS DAS ABORDAGENS")
-    print("="*80)
-    
-    print("\n🔸 V1 - PENALIZAÇÃO COM LISTA DE EVENTOS")
-    print("-" * 60)
-    print("📋 Conceito:")
-    print("   • Modela o problema como uma lista de eventos/aulas")
-    print("   • Cada gene representa uma aula: [disciplina, professor, dia, horário, sala]")
-    print("   • Cromossomo = lista de todos os genes necessários")
-    print()
-    print("🎯 Função de Fitness:")
-    print("   • Inicia com valor alto (10.000 pontos)")
-    print("   • Subtrai penalidades por violações:")
-    print("     - Conflitos de professor: -1000 pontos")
-    print("     - Conflitos de sala: -1000 pontos")
-    print("     - Violações de disponibilidade: -500 pontos")
-    print("     - Concentração excessiva: -100 pontos")
-    print("   • Adiciona bonificações por qualidades positivas")
-    print()
-    print("✅ Vantagens:")
-    print("   • Flexibilidade total na estrutura")
-    print("   • Fácil escalar para problemas maiores")
-    print("   • Crossover e mutação intuitivos")
-    print("   • Bom para problemas com restrições variáveis")
-    print()
-    print("⚠️  Desvantagens:")
-    print("   • Pode não garantir completude das disciplinas")
-    print("   • Fitness negativo confunde interpretação")
-    print("   • Necessita validação externa da solução")
-    
-    print("\n🔹 V2 - PONTUAÇÃO COM AGENDA (MATRIZ)")
-    print("-" * 60)
-    print("📅 Conceito:")
-    print("   • Modela como uma agenda real: matriz 5×4 (dias × horários)")
-    print("   • Cada célula contém uma aula ou está vazia")
-    print("   • Cromossomo = matriz completa da semana")
-    print("   • Garantia de que todas as disciplinas são atendidas")
-    print()
-    print("🎯 Função de Fitness:")
-    print("   • Inicia com zero e acumula pontuações positivas:")
-    print("     - Disciplina completamente atendida: +1000 pontos")
-    print("     - Disponibilidade respeitada: +500 pontos")
-    print("     - Distribuição equilibrada: +200 pontos")
-    print("     - Sem sobrecarga diária: +150 pontos")
-    print("     - Sem janelas no horário: +100 pontos")
-    print("     - Professor satisfeito: +80 pontos")
-    print("     - Sala otimizada: +50 pontos")
-    print()
-    print("✅ Vantagens:")
-    print("   • Garantia automática de completude das disciplinas")
-    print("   • Fitness sempre positivo e interpretável")
-    print("   • Visualização natural como horário")
-    print("   • Reparo automático de soluções inválidas")
-    print("   • Foco em maximizar qualidade")
-    print()
-    print("⚠️  Desvantagens:")
-    print("   • Estrutura fixa (limitado a 5×4)")
-    print("   • Crossover mais complexo")
-    print("   • Pode desperdiçar slots vagos")
-    print("   • Menos flexível para variações do problema")
-    
-    print("\n🎯 QUAL ESCOLHER?")
-    print("-" * 60)
-    print("🔸 Escolha V1 quando:")
-    print("   • Número de aulas varia muito")
-    print("   • Flexibilidade é mais importante que garantias")
-    print("   • Quer focar em evitar violações específicas")
-    print("   • Problema tem muitas restrições hard")
-    print("   • Precisa escalar para problemas muito grandes")
-    print()
-    print("🔹 Escolha V2 quando:")
-    print("   • Todas as disciplinas DEVEM ser atendidas")
-    print("   • Quer interpretação intuitiva do fitness")
-    print("   • Visualização como agenda é importante")
-    print("   • Foco é maximizar qualidade da solução")
-    print("   • Estrutura de horário é relativamente fixa")
-
-def mostrar_informacoes_projeto():
-    """Mostra informações sobre o projeto"""
-    print("\n" + "="*80)
-    print("ℹ️  INFORMAÇÕES DO PROJETO - TECH CHALLENGE FASE 2")
-    print("="*80)
-    print("🎯 Objetivo:")
-    print("   Desenvolver sistema de otimização de horários acadêmicos")
-    print("   usando Algoritmos Genéticos, comparando duas abordagens distintas.")
-    print()
-    print("🏫 Problema Real:")
-    print("   • Distribuir disciplinas, professores e salas em horários")
-    print("   • Respeitar disponibilidades e restrições")
-    print("   • Minimizar conflitos e maximizar qualidade")
-    print("   • Automatizar processo que levava horas manualmente")
-    print()
-    print("🧬 Algoritmos Genéticos:")
-    print("   • População de soluções candidatas")
-    print("   • Evolução através de seleção, crossover e mutação")
-    print("   • Fitness orienta a busca por melhores soluções")
-    print("   • Convergência para soluções otimizadas")
-    print()
-    print("💡 Inovações Implementadas:")
-    print("   • Duas modelagens diferentes do mesmo problema")
-    print("   • Comparação sistemática entre abordagens")
-    print("   • Sistema de garantia de completude (V2)")
-    print("   • Visualizações e análises avançadas")
-    print()
-    print("🛠️  Tecnologias:")
-    print("   • Python 3.8+")
-    print("   • Pandas, NumPy (manipulação de dados)")
-    print("   • Matplotlib, Seaborn (visualizações)")
-    print("   • OpenPyXL (integração com Excel)")
-    print()
-    print("📊 Resultados Esperados:")
-    print("   • Redução de 90% no tempo de elaboração")
-    print("   • Eliminação de conflitos de horário")
-    print("   • Otimização automática de múltiplos critérios")
-    print("   • Solução escalável e reutilizável")
-    print()
-    print("🎥 Para o Vídeo (máx 10 min):")
-    print("   1. Apresentação do problema real (2 min)")
-    print("   2. Demonstração das duas abordagens (4 min)")
-    print("   3. Comparação e resultados (3 min)")
-    print("   4. Conclusões e aplicabilidade (1 min)")
-
 def menu_principal():
     """Menu principal do sistema integrado"""
     while True:
@@ -396,14 +258,10 @@ def menu_principal():
         print("6. Análise completa com visualizações (V2)")
         print("7. Análise detalhada de agenda (V2)")
         print()
-        print("ℹ️  INFORMAÇÕES:")
-        print("8. Diferenças detalhadas entre abordagens")
-        print("9. Informações do projeto")
-        print()
         print("0. Sair")
         
         try:
-            opcao = input("\nEscolha uma opção (0-9): ").strip()
+            opcao = input("\nEscolha uma opção (0-7): ").strip()
             
             if opcao == "1":
                 resultado = executar_v1_penalizacao()
@@ -474,15 +332,9 @@ def menu_principal():
                     print(f"❌ Erro de importação: {e}")
                 except Exception as e:
                     print(f"❌ Erro durante análise V2: {e}")
-                    
-            elif opcao == "8":
-                mostrar_informacoes_detalhadas()
-                
-            elif opcao == "9":
-                mostrar_informacoes_projeto()
                 
             elif opcao == "0":
-                print("\n👋 Obrigado por usar o sistema! Bom projeto!")
+                print("\n👋 Obrigado por usar o sistema!")
                 break
                 
             else:

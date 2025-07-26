@@ -1,14 +1,3 @@
-#!/usr/bin/env python3
-"""
-TECH CHALLENGE - FASE 2
-Sistema de Otimização de Horários Acadêmicos com Algoritmos Genéticos
-
-Autor: [Seu Nome]
-Data: Julho 2025
-
-Este script executa o sistema completo de otimização de horários usando AG.
-"""
-
 import sys
 import os
 import time
